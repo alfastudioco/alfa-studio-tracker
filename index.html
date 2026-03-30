@@ -284,6 +284,145 @@ function WorkerLogCard({emp,entries,projs,onDelete}){
   );
 }
 
+
+// ── ImportSheet ────────────────────────────────────────────
+function ImportSheet({emps, projs, onClose, onSave}) {
+  const [step, setStep] = useState("paste"); // "paste" | "review"
+  const [raw, setRaw] = useState("");
+  const [rows, setRows] = useState([]);
+  const [parseError, setParseError] = useState("");
+
+  const selStyle = {width:"100%",background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:6,color:"#1C1917",padding:"8px 10px",fontSize:13,outline:"none",appearance:"none"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:600,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},txt);
+
+  function parseRaw() {
+    setParseError("");
+    const lines = raw.trim().split("\n").filter(l=>l.trim());
+    if (!lines.length) { setParseError("Nothing to parse."); return; }
+    const parsed = lines.map((line,i) => {
+      // split by tab (Excel) or comma
+      const cols = line.includes("\t") ? line.split("\t") : line.split(",");
+      const [empCol="", projCol="", dateCol="", hoursCol=""] = cols.map(c=>c.trim().replace(/^"|"$/g,""));
+      // Try to match employee by name (case insensitive partial)
+      const emp = emps.find(e=>e.name.toLowerCase().includes(empCol.toLowerCase())) || null;
+      const proj = projs.find(p=>p.name.toLowerCase().includes(projCol.toLowerCase())) || null;
+      // Parse date — try various formats
+      let dateVal = "";
+      if (dateCol) {
+        const d = new Date(dateCol);
+        if (!isNaN(d)) dateVal = d.toISOString().slice(0,10);
+        else dateVal = new Date().toISOString().slice(0,10);
+      } else {
+        dateVal = new Date().toISOString().slice(0,10);
+      }
+      const hours = parseFloat(hoursCol) || "";
+      return { id: Date.now()+i+Math.random(), empId: emp?String(emp.id):"", projId: proj?String(proj.id):"", date: dateVal, hours: String(hours), rawEmp: empCol, rawProj: projCol };
+    });
+    setRows(parsed);
+    setStep("review");
+  }
+
+  function updateRow(id, field, val) {
+    setRows(p=>p.map(r=>r.id===id?{...r,[field]:val}:r));
+  }
+
+  const valid = rows.filter(r=>r.empId&&r.projId&&r.hours&&+r.hours>0);
+
+  function doImport() {
+    const entries = valid.map(r=>{
+      const ms=+r.hours*3600000;
+      const base=new Date(r.date+"T07:00:00").getTime();
+      return {id:Date.now()+Math.random(),empId:+r.empId,projId:+r.projId,start:base,end:base+ms};
+    });
+    onSave(entries);
+  }
+
+  return h(Sheet,{title:"Import from Spreadsheet",onClose},
+
+    // STEP 1 — Paste
+    step==="paste"&&h("div",null,
+      h("div",{style:{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#166534",lineHeight:1.7}},
+        h("strong",null,"How to paste from Excel:"),h("br"),
+        "1. In Excel, select columns in this order:",h("br"),
+        h("code",{style:{background:"#DCFCE7",padding:"1px 5px",borderRadius:3,fontSize:11}},"Employee  |  Project  |  Date  |  Hours"),h("br"),
+        "2. Copy (Ctrl+C / Cmd+C)",h("br"),
+        "3. Paste below (Ctrl+V / Cmd+V)",h("br"),
+        h("span",{style:{color:"#14532D",fontSize:11}},"Employee & project names are matched automatically. You can fix any mismatches on the next screen.")
+      ),
+      h("textarea",{
+        value:raw,
+        onChange:e=>setRaw(e.target.value),
+        placeholder:"Paste your spreadsheet data here…",
+        style:{width:"100%",minHeight:160,background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"10px 12px",fontSize:13,outline:"none",resize:"vertical",fontFamily:"monospace",boxSizing:"border-box",marginBottom:8}
+      }),
+      parseError&&h("div",{style:{fontSize:12,color:"#DC2626",marginBottom:8}},parseError),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:onClose}),
+        h("button",{onClick:parseRaw,style:{background:"#1C1917",color:"#FFF",border:"none",borderRadius:8,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:"pointer"}},
+          "Preview →")
+      )
+    ),
+
+    // STEP 2 — Review & fix
+    step==="review"&&h("div",null,
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        h("span",{style:{fontSize:12,color:"#78716C"}},"Review "+rows.length+" row"+(rows.length!==1?"s":"")+". Fix any mismatches below."),
+        h("button",{onClick:()=>setStep("paste"),style:{background:"none",border:"none",color:"#78716C",fontSize:12,cursor:"pointer",textDecoration:"underline"}},"← Back")
+      ),
+
+      rows.map((row,i)=>{
+        const hasIssue = !row.empId||!row.projId||!row.hours||+row.hours<=0;
+        return h("div",{key:row.id,style:{background:hasIssue?"#FFF7ED":"#F5F3F0",border:"1px solid "+(hasIssue?"#FED7AA":"#E5E2DC"),borderRadius:8,padding:"10px 12px",marginBottom:8}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+            h("span",{style:{fontSize:11,fontWeight:700,color:hasIssue?"#D97706":"#78716C"}},
+              hasIssue?"⚠ Row "+(i+1)+" needs attention":"✓ Row "+(i+1)
+            ),
+            h("button",{onClick:()=>setRows(p=>p.filter(r=>r.id!==row.id)),style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:15,lineHeight:1}},"×")
+          ),
+          // All 4 fields in a 2x2 grid
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+            h("div",null,
+              lbl("Employee"+(row.rawEmp&&!row.empId?" (not matched)":"")),
+              h("select",{value:row.empId,onChange:e=>updateRow(row.id,"empId",e.target.value),style:{...selStyle,borderColor:!row.empId?"#FCA5A5":"#E5E2DC"}},
+                h("option",{value:""},"Select…"),
+                emps.map(e=>h("option",{key:e.id,value:e.id},e.name))
+              )
+            ),
+            h("div",null,
+              lbl("Project"+(row.rawProj&&!row.projId?" (not matched)":"")),
+              h("select",{value:row.projId,onChange:e=>updateRow(row.id,"projId",e.target.value),style:{...selStyle,borderColor:!row.projId?"#FCA5A5":"#E5E2DC"}},
+                h("option",{value:""},"Select…"),
+                projs.map(p=>h("option",{key:p.id,value:p.id},p.name))
+              )
+            ),
+            h("div",null,
+              lbl("Date"),
+              h("input",{type:"date",value:row.date,onChange:e=>updateRow(row.id,"date",e.target.value),style:selStyle})
+            ),
+            h("div",null,
+              lbl("Hours"),
+              h("input",{type:"number",min:0,step:0.5,value:row.hours,onChange:e=>updateRow(row.id,"hours",e.target.value),style:{...selStyle,borderColor:(!row.hours||+row.hours<=0)?"#FCA5A5":"#E5E2DC"}})
+            )
+          )
+        );
+      }),
+
+      h("div",{style:{background:"#F5F3F0",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#78716C",display:"flex",justifyContent:"space-between"}},
+        h("span",null,valid.length+" of "+rows.length+" rows ready"),
+        rows.length!==valid.length&&h("span",{style:{color:"#D97706"}},(rows.length-valid.length)+" with issues will be skipped")
+      ),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:onClose}),
+        h("button",{
+          onClick:doImport,
+          disabled:!valid.length,
+          style:{background:valid.length?"#1C1917":"#E5E2DC",color:valid.length?"#FFF":"#A8A29E",border:"none",borderRadius:8,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:valid.length?"pointer":"default"}
+        },"✓ Import "+valid.length+" Entr"+(valid.length!==1?"ies":"y"))
+      )
+    )
+  );
+}
+
 // ── Main App ───────────────────────────────────────────────
 function App(){
   const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
@@ -404,7 +543,7 @@ function App(){
     ),
 
     // ═══ WORKER VIEW ═══
-    mode==="worker"&&h("div",{style:{padding:"16px 16px 40px",maxWidth:600,margin:"0 auto"}},
+    mode==="worker"&&h("div",{style:{padding:"16px 16px 40px",maxWidth:1200,margin:"0 auto"}},
 
       // Active banner
       active.length>0&&h("div",{style:{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:12,padding:"12px 16px",marginBottom:16}},
@@ -422,11 +561,11 @@ function App(){
       ),
 
       // Employee cards — 2 columns, always visible
-      h("div",{style:{display:"flex",gap:10,overflowX:"auto",paddingBottom:6}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}},
 
         emps.map(emp=>{
           const isClockedIn=active.some(e=>e.empId===emp.id);
-          return h("div",{key:emp.id,style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22",minWidth:220,flex:"0 0 220px"}},
+          return h("div",{key:emp.id,style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22"}},
             // Name header
             h("div",{style:{padding:"10px 12px",background:emp.color+"18",display:"flex",alignItems:"center",gap:8}},
               h("div",{style:{width:28,height:28,borderRadius:"50%",background:emp.color+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
@@ -881,71 +1020,11 @@ function App(){
       )
     ),
 
-    importSheet&&h(Sheet,{title:"Batch Import",onClose:()=>setImportSheet(false)},
-      h("div",{style:{fontSize:12,color:T.sub,marginBottom:14,lineHeight:1.6}},"Add one row per day worked. Each row will be saved as a separate log entry."),
-
-      // Rows
-      importRows.map((row,i)=>
-        h("div",{key:row.id,style:{background:T.faint,border:"1px solid "+T.border,borderRadius:10,padding:"12px",marginBottom:10}},
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
-            h("span",{style:{fontSize:11,fontWeight:700,color:T.sub}},"ENTRY "+(i+1)),
-            importRows.length>1&&h("button",{onClick:()=>setImportRows(p=>p.filter(r=>r.id!==row.id)),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,lineHeight:1}},"×")
-          ),
-          // Employee
-          h("div",{style:{marginBottom:8}},
-            h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Employee"),
-            h("select",{value:row.empId,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,empId:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:row.empId?T.text:T.dim,padding:"8px 10px",fontSize:13,outline:"none",appearance:"none"}},
-              h("option",{value:""},"Select employee…"),
-              emps.map(e=>h("option",{key:e.id,value:e.id},e.name))
-            )
-          ),
-          // Project
-          h("div",{style:{marginBottom:8}},
-            h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Project"),
-            h("select",{value:row.projId,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,projId:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:row.projId?T.text:T.dim,padding:"8px 10px",fontSize:13,outline:"none",appearance:"none"}},
-              h("option",{value:""},"Select project…"),
-              projs.map(p=>h("option",{key:p.id,value:p.id},p.name))
-            )
-          ),
-          // Date + Hours on same row
-          h("div",{style:{display:"flex",gap:8}},
-            h("div",{style:{flex:1}},
-              h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Date"),
-              h("input",{type:"date",value:row.date,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,date:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}})
-            ),
-            h("div",{style:{flex:1}},
-              h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Hours"),
-              h("input",{type:"number",min:0,step:0.5,placeholder:"e.g. 8",value:row.hours,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,hours:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}})
-            )
-          )
-        )
-      ),
-
-      // Add another row button
-      h("button",{onClick:()=>setImportRows(p=>[...p,{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]),style:{width:"100%",background:"transparent",border:"2px dashed "+T.border,borderRadius:10,padding:"10px",fontSize:13,color:T.sub,cursor:"pointer",marginBottom:16}},"+ Add Another Row"),
-
-      // Confirm
-      h("div",{style:{background:T.faint,borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.sub}},
-        importRows.filter(r=>r.empId&&r.projId&&r.hours).length+" of "+importRows.length+" rows ready to import"
-      ),
-      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
-        h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setImportSheet(false)}),
-        h("button",{
-          onClick:()=>{
-            const valid=importRows.filter(r=>r.empId&&r.projId&&r.hours&&+r.hours>0);
-            if(!valid.length)return;
-            const newEntries=valid.map(r=>{
-              const ms=+r.hours*3600000;
-              const base=new Date(r.date+"T07:00:00").getTime();
-              return {id:Date.now()+Math.random(),empId:+r.empId,projId:+r.projId,start:base,end:base+ms};
-            });
-            setEntries(p=>[...p,...newEntries]);
-            setImportSheet(false);
-          },
-          style:{background:T.text,color:"#FFF",border:"none",borderRadius:8,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:"pointer"}
-        },"✓ Import "+importRows.filter(r=>r.empId&&r.projId&&r.hours).length+" Entries")
-      )
-    ),
+    importSheet&&h(ImportSheet,{
+      emps,projs,
+      onClose:()=>setImportSheet(false),
+      onSave:(newEntries)=>{setEntries(p=>[...p,...newEntries]);setImportSheet(false);}
+    }),
 
     confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,onConfirm:()=>deleteEntry(confirmEntry.id),onCancel:()=>setConfirmEntry(null)})
   );

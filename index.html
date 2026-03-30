@@ -455,10 +455,14 @@ function App(){
   // Load from Supabase on mount, fall back to localStorage
   useEffect(()=>{
     (async()=>{
-      const [e,p,en] = await Promise.all([dbLoad("employees"),dbLoad("projects"),dbLoad("entries")]);
-      if(e&&e.length>0)  setEmps(e);
-      if(p&&p.length>0)  setProjs(p);
-      if(en&&en.length>=0) setEntries(en);
+      try {
+        const [e,p,en] = await Promise.all([dbLoad("employees"),dbLoad("projects"),dbLoad("entries")]);
+        if(e&&e.length>0)  setEmps(e);
+        if(p&&p.length>0)  setProjs(p);
+        if(en!==null) setEntries(en.length>=0?en:[]);
+      } catch(err) {
+        console.error("Initial load error", err);
+      }
       setDbReady(true);
     })();
   },[]);
@@ -530,6 +534,8 @@ function App(){
     setEntries(p=>p.filter(e=>e.empId!==id));
     setProjs(p=>p.map(x=>({...x,assignedTo:x.assignedTo.filter(i=>i!==id)})));
   }
+  function archiveEmp(id){ setEmps(p=>p.map(e=>e.id===id?{...e,archived:true}:e)); }
+  function unarchiveEmp(id){ setEmps(p=>p.map(e=>e.id===id?{...e,archived:false}:e)); }
   function saveProj(){
     if(!pf.name.trim())return;
     if(projSheet==="add") setProjs(p=>[...p,{id:Date.now(),...pf}]);

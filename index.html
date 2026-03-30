@@ -42,10 +42,10 @@ function load(key, fallback) {
 
 // ── Default data ───────────────────────────────────────────
 const DEFAULT_EMPS = [
-  {id:1,name:"Misha", role:"Master Carpenter",color:"#D97706"},
-  {id:2,name:"Tolik", role:"Finisher",        color:"#2563EB"},
-  {id:3,name:"Maksym",role:"Assembler",       color:"#16A34A"},
-  {id:4,name:"Vitya", role:"CNC Operator",    color:"#9333EA"},
+  {id:1,name:"Misha", role:"Master Carpenter",color:"#D97706",rate:0},
+  {id:2,name:"Tolik", role:"Finisher",        color:"#2563EB",rate:0},
+  {id:3,name:"Maksym",role:"Assembler",       color:"#16A34A",rate:0},
+  {id:4,name:"Vitya", role:"CNC Operator",    color:"#9333EA",rate:0},
 ];
 const DEFAULT_PROJS = [
   {id:1,name:"Yura Keystone",client:"",status:"In Progress",deadline:"",assignedTo:[1,2]},
@@ -250,7 +250,7 @@ function App(){
   const [projSheet,setProjSheet] = useState(null);
   const [logSheet,setLogSheet]   = useState(null);
   const [confirmEntry,setConfirmEntry] = useState(null);
-  const [ef,setEf] = useState({name:"",role:ROLES[0]});
+  const [ef,setEf] = useState({name:"",role:ROLES[0],rate:""});
   const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
@@ -268,6 +268,8 @@ function App(){
   function projMs(pid){return done.filter(e=>e.projId===pid).reduce((s,e)=>s+(e.end-e.start),0);}
   function empMs(eid){return done.filter(e=>e.empId===eid).reduce((s,e)=>s+(e.end-e.start),0);}
 
+  function fmtCost(dollars){ return "$"+dollars.toFixed(2); }
+  function entryCost(e){ const emp=emps.find(x=>x.id===e.empId); return emp&&emp.rate?(e.end-e.start)/3600000*emp.rate:0; }
   function clockIn(eid,pid){
     if(activeFor(eid,pid))return;
     const now=Date.now();
@@ -278,8 +280,8 @@ function App(){
 
   function saveEmp(){
     if(!ef.name.trim())return;
-    if(empSheet==="add") setEmps(p=>[...p,{id:Date.now(),name:ef.name,role:ef.role,color:COLORS[p.length%COLORS.length]}]);
-    else setEmps(p=>p.map(e=>e.id===empSheet.id?{...e,...ef}:e));
+    if(empSheet==="add") setEmps(p=>[...p,{id:Date.now(),name:ef.name,role:ef.role,color:COLORS[p.length%COLORS.length],rate:+ef.rate||0}]);
+    else setEmps(p=>p.map(e=>e.id===empSheet.id?{...e,...ef,rate:+ef.rate||0}:e));
     setEmpSheet(null);
   }
   function delEmp(id){
@@ -534,7 +536,7 @@ function App(){
                 ),
                 h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
                   h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:String(emp.id),projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
-                  h(Btn,{label:"Edit",size:"sm",variant:"ghost",onClick:()=>{setEf({name:emp.name,role:emp.role});setEmpSheet(emp);}}),
+                  h(Btn,{label:"Edit",size:"sm",variant:"ghost",onClick:()=>{setEf({name:emp.name,role:emp.role,rate:emp.rate||""});setEmpSheet(emp);}}),
                   h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>delEmp(emp.id)})
                 )
               )
@@ -554,23 +556,37 @@ function App(){
           done.length>0&&h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:12,marginBottom:20,overflow:"hidden"}},
             h("div",{style:{padding:"12px 16px",borderBottom:"1px solid "+T.line,display:"flex",justifyContent:"space-between",alignItems:"center"}},
               h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},"Project Totals"),
-              h("span",{style:{fontSize:12,color:T.amber,fontWeight:600}},fmtHrs(totalMs)+" total")
+              h("div",{style:{display:"flex",gap:12,alignItems:"baseline"}},
+                h("span",{style:{fontSize:12,color:T.amber,fontWeight:600}},fmtHrs(totalMs)),
+                h("span",{style:{fontSize:12,color:T.green,fontWeight:600}},fmtCost(done.reduce((s,e)=>s+entryCost(e),0)))
+              )
             ),
             h("div",{style:{padding:"8px 16px"}},
               projs.map(proj=>{
-                const projTotal=done.filter(e=>e.projId===proj.id).reduce((s,e)=>s+(e.end-e.start),0);
+                const projEntries=done.filter(e=>e.projId===proj.id);
+                const projTotal=projEntries.reduce((s,e)=>s+(e.end-e.start),0);
                 if(!projTotal)return null;
-                const projEmps=emps.filter(emp=>done.some(e=>e.projId===proj.id&&e.empId===emp.id));
+                const projCost=projEntries.reduce((s,e)=>s+entryCost(e),0);
+                const projEmps=emps.filter(emp=>projEntries.some(e=>e.empId===emp.id));
                 return h("div",{key:proj.id,style:{padding:"10px 0",borderBottom:"1px solid "+T.line}},
-                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
                     h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},proj.name),
-                    h("span",{style:{fontSize:14,fontWeight:700,color:T.amber}},fmtHrs(projTotal))
+                    h("div",{style:{display:"flex",gap:10,alignItems:"baseline"}},
+                      h("span",{style:{fontSize:13,fontWeight:700,color:T.amber}},fmtHrs(projTotal)),
+                      projCost>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},fmtCost(projCost))
+                    )
                   ),
-                  h("div",{style:{display:"flex",gap:12,flexWrap:"wrap"}},
+                  h("div",{style:{display:"flex",flexDirection:"column",gap:3}},
                     projEmps.map(emp=>{
-                      const empProjTotal=done.filter(e=>e.projId===proj.id&&e.empId===emp.id).reduce((s,e)=>s+(e.end-e.start),0);
-                      return h("span",{key:emp.id,style:{fontSize:11,color:emp.color,fontWeight:600}},
-                        emp.name+": "+fmtHrs(empProjTotal)
+                      const empEntries=projEntries.filter(e=>e.empId===emp.id);
+                      const empHrsMs=empEntries.reduce((s,e)=>s+(e.end-e.start),0);
+                      const empCost=empEntries.reduce((s,e)=>s+entryCost(e),0);
+                      return h("div",{key:emp.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}},
+                        h("span",{style:{fontSize:12,color:emp.color,fontWeight:600}},emp.name+(emp.rate?" ($"+emp.rate+"/h)":" (no rate)")),
+                        h("div",{style:{display:"flex",gap:10}},
+                          h("span",{style:{fontSize:12,color:T.sub}},fmtHrs(empHrsMs)),
+                          empCost>0&&h("span",{style:{fontSize:12,color:T.green,fontWeight:600}},fmtCost(empCost))
+                        )
                       );
                     })
                   )
@@ -598,6 +614,7 @@ function App(){
     empSheet&&h(Sheet,{title:empSheet==="add"?"New Employee":"Edit Employee",onClose:()=>setEmpSheet(null)},
       h(Field,{label:"Full Name",value:ef.name,onChange:v=>setEf({...ef,name:v})}),
       h(Field,{label:"Role",value:ef.role,onChange:v=>setEf({...ef,role:v}),options:ROLES}),
+      h(Field,{label:"Hourly Rate ($)",value:String(ef.rate||""),onChange:v=>setEf({...ef,rate:v})}),
       h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}},
         h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setEmpSheet(null)}),
         h(Btn,{label:"Save",onClick:saveEmp})

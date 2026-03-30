@@ -29,33 +29,39 @@ const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authoriza
 
 async function dbLoad(table) {
   try {
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*", {headers:SB_HEADERS});
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {headers:SB_HEADERS});
+    if (!r.ok) { console.error("dbLoad failed", table, r.status, await r.text()); return null; }
     const rows = await r.json();
-    if (!Array.isArray(rows)) return null;
-    return rows.map(r => r.data);
-  } catch(e) { return null; }
+    if (!Array.isArray(rows) || rows.length===0) return null;
+    return rows.map(row => row.data);
+  } catch(e) { console.error("dbLoad error", table, e); return null; }
 }
 
 async function dbSave(table, items) {
   try {
-    // Upsert all items
+    if (!items || items.length === 0) {
+      // Delete all rows if empty
+      await fetch(SB_URL+"/rest/v1/"+table+"?id=neq.0", {method:"DELETE", headers:SB_HEADERS});
+      return;
+    }
+    // Upsert — note the correct Prefer header for upsert
     const body = items.map(item => ({id: item.id, data: item}));
-    await fetch(SB_URL+"/rest/v1/"+table, {
-      method:"POST",
-      headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},
+    const r = await fetch(SB_URL+"/rest/v1/"+table, {
+      method: "POST",
+      headers: {...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
       body: JSON.stringify(body)
     });
-    // Delete removed items — get existing ids then delete ones not in current list
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=id", {headers:SB_HEADERS});
-    const existing = await r.json();
-    const currentIds = new Set(items.map(i => i.id));
-    const toDelete = existing.filter(row => !currentIds.has(row.id)).map(row => row.id);
-    if (toDelete.length > 0) {
-      await fetch(SB_URL+"/rest/v1/"+table+"?id=in.("+toDelete.join(",")+")", {
-        method:"DELETE", headers:SB_HEADERS
-      });
-    }
-  } catch(e) { console.error("dbSave error", e); }
+    if (!r.ok) { console.error("dbSave upsert failed", table, r.status, await r.text()); return; }
+    // Delete rows no longer in list
+    const currentIds = items.map(i => i.id).join(",");
+    await fetch(SB_URL+"/rest/v1/"+table+"?id=not.in.("+currentIds+")", {
+      method: "DELETE", headers: SB_HEADERS
+    });
+  } catch(e) { console.error("dbSave error", table, e); }
+}
+
+async function dbPushAll(emps, projs, entries) {
+  await Promise.all([dbSave("employees",emps), dbSave("projects",projs), dbSave("entries",entries)]);
 }
 
 // ── Constants ──────────────────────────────────────────────
@@ -429,6 +435,7 @@ function App(){
   const [projs,setProjs]     = useState(()=>load("alfa_projs",  DEFAULT_PROJS));
   const [entries,setEntries] = useState(()=>load("alfa_entries",DEFAULT_ENTRIES));
   const [dbReady,setDbReady] = useState(false);
+  const [syncing,setSyncing] = useState(false);
 
   // Load from Supabase on mount, fall back to localStorage
   useEffect(()=>{
@@ -533,7 +540,10 @@ function App(){
         ),
         h("div",null,
           h("div",{style:{fontSize:15,fontWeight:800,color:T.text,letterSpacing:"-0.4px",lineHeight:1}},"Alfa Studio"),
-          h("div",{style:{fontSize:9,color:T.dim,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:1}},dbReady?"✦ LIVE":"⟳ SYNCING...")
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:1}},
+            h("div",{style:{fontSize:9,color:dbReady?T.green:T.amber,letterSpacing:"0.12em",textTransform:"uppercase"}},dbReady?"✦ LIVE":"⟳ CONNECTING…"),
+            mode==="admin"&&h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync")
+          )
         )
       ),
       h("div",{style:{display:"flex",background:T.faint,borderRadius:10,padding:3,gap:2}},

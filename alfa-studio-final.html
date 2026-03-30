@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Alfa Studio"/>
+<meta name="theme-color" content="#F8F7F4"/>
+<title>Alfa Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#F8F7F4;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100%;padding-bottom:env(safe-area-inset-bottom);}
+input,select,button{font-family:inherit;}
+::-webkit-scrollbar{display:none;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState, useEffect, createElement:h} = React;
+
+// ── Constants ──────────────────────────────────────────────
+const ADMIN_PIN = "7513";
+const COLORS = ["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5"];
+const ROLES = ["Master Carpenter","Finisher","Assembler","CNC Operator","Apprentice","Project Manager","Installer","Shop Hand"];
+const STATUSES = ["Not Started","In Progress","On Hold","Completed"];
+const SC = {"Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
+
+const T = {
+  bg:"#F8F7F4", surf:"#FFFFFF", border:"#E5E2DC", line:"#F0EDE8",
+  text:"#1C1917", sub:"#78716C", dim:"#A8A29E", faint:"#F5F3F0",
+  amber:"#D97706", green:"#16A34A", red:"#DC2626", blue:"#2563EB",
+};
+
+// ── Storage ────────────────────────────────────────────────
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+}
+
+// ── Default data ───────────────────────────────────────────
+const DEFAULT_EMPS = [
+  {id:1,name:"Misha", role:"Master Carpenter",color:"#D97706"},
+  {id:2,name:"Tolik", role:"Finisher",        color:"#2563EB"},
+  {id:3,name:"Maksym",role:"Assembler",       color:"#16A34A"},
+  {id:4,name:"Vitya", role:"CNC Operator",    color:"#9333EA"},
+];
+const DEFAULT_PROJS = [
+  {id:1,name:"Yura Keystone",client:"",status:"In Progress",deadline:"",assignedTo:[1,2]},
+  {id:2,name:"Sherlock",     client:"",status:"In Progress",deadline:"",assignedTo:[3,4]},
+  {id:3,name:"Yan Bar",      client:"",status:"Not Started",deadline:"",assignedTo:[1]},
+  {id:4,name:"Rosenbaum",    client:"",status:"In Progress",deadline:"",assignedTo:[2,3]},
+];
+function mkE(id,eid,pid,daysAgo,startH,durH){
+  const dt=new Date(); dt.setDate(dt.getDate()-daysAgo); dt.setHours(startH,0,0,0);
+  return {id,empId:eid,projId:pid,start:dt.getTime(),end:dt.getTime()+durH*3600000};
+}
+const DEFAULT_ENTRIES=[
+  mkE(1,1,1,0,7,3.5),mkE(2,2,1,0,8,4.5),mkE(3,3,2,0,7,8),
+  mkE(4,1,1,1,7,8.5),mkE(5,2,1,1,8,4),  mkE(6,4,2,1,9,8),
+  mkE(7,3,2,2,7,8.5),mkE(8,2,4,5,8,8),  mkE(9,3,4,5,7,8),
+  mkE(10,1,3,3,9,4),
+];
+
+// ── Helpers ────────────────────────────────────────────────
+function fmtHrs(ms){
+  const h=ms/3600000;
+  if(h<0.017)return"—";
+  if(h<1)return Math.round(h*60)+"m";
+  const hrs=Math.floor(h),mins=Math.round((h-hrs)*60);
+  return mins>0?`${hrs}h ${mins}m`:`${hrs}h`;
+}
+function fmtTime(ms){return new Date(ms).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});}
+function fmtDate(ms){return new Date(ms).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"});}
+function dayKey(ms){const d=new Date(ms);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+function dayLabel(key){
+  const tk=dayKey(Date.now()),yk=dayKey(Date.now()-86400000);
+  if(key===tk)return"Today"; if(key===yk)return"Yesterday";
+  const[y,m,d]=key.split("-").map(Number);
+  return new Date(y,m-1,d).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"});
+}
+
+// ── LiveTimer ──────────────────────────────────────────────
+function LiveTimer({start}){
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
+  return h("span",null,fmtHrs(now-start));
+}
+
+// ── Small UI pieces ────────────────────────────────────────
+const badge=(color,text)=>h("span",{style:{display:"inline-flex",alignItems:"center",background:color+"12",color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}},text);
+
+function Btn({label,onClick,variant="primary",size="md"}){
+  const pad=size==="sm"?"5px 12px":"8px 18px", fz=size==="sm"?12:13;
+  const base={borderRadius:8,cursor:"pointer",fontSize:fz,fontWeight:600,border:"none",padding:pad};
+  const styles={
+    primary:{...base,background:T.text,color:"#FFF"},
+    ghost:{...base,background:"transparent",color:T.sub,border:"1px solid "+T.border},
+    danger:{...base,background:"#FEF2F2",color:T.red,border:"1px solid #FECACA"},
+    green:{...base,background:"#F0FDF4",color:T.green,border:"1px solid #BBF7D0"},
+  };
+  return h("button",{onClick,style:styles[variant]||styles.primary},label);
+}
+
+function Field({label,value,onChange,type="text",options}){
+  const s={width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"};
+  return h("div",{style:{marginBottom:14}},
+    h("div",{style:{fontSize:11,color:T.sub,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},label),
+    options
+      ? h("select",{value,onChange:e=>onChange(e.target.value),style:s},options.map(o=>h("option",{key:o,value:o},o)))
+      : h("input",{type,value,onChange:e=>onChange(e.target.value),style:s})
+  );
+}
+
+function Sheet({title,onClose,children}){
+  return h("div",{onClick:onClose,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"20px 20px 0 0",padding:"8px 24px 40px",width:"100%",maxWidth:560,maxHeight:"88vh",overflowY:"auto",boxShadow:"0 -4px 40px rgba(0,0,0,0.12)"}},
+      h("div",{style:{width:40,height:4,background:T.border,borderRadius:2,margin:"12px auto 20px"}}),
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}},
+        h("span",{style:{fontSize:17,fontWeight:700,color:T.text}},title),
+        h("button",{onClick:onClose,style:{background:T.faint,border:"none",color:T.sub,width:30,height:30,borderRadius:"50%",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}},"×")
+      ),
+      children
+    )
+  );
+}
+
+function Confirm({entry,emps,projs,onConfirm,onCancel}){
+  const emp=emps.find(x=>x.id===entry.empId), proj=projs.find(x=>x.id===entry.projId);
+  return h("div",{onClick:onCancel,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+      h("div",{style:{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}},"Delete entry?"),
+      h("div",{style:{fontSize:13,color:T.sub,lineHeight:1.7,marginBottom:20}},
+        `${emp?.name} · ${proj?.name}`,h("br"),
+        `${fmtDate(entry.start)} · ${fmtTime(entry.start)}–${entry.end?fmtTime(entry.end):"?"} · `,
+        h("strong",null,entry.end?fmtHrs(entry.end-entry.start):"—")
+      ),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",onClick:onCancel,variant:"ghost"}),
+        h(Btn,{label:"Delete",onClick:onConfirm,variant:"danger"})
+      )
+    )
+  );
+}
+
+// ── PinScreen ──────────────────────────────────────────────
+function PinScreen({onSuccess,onCancel}){
+  const [pin,setPin]=useState("");
+  const [error,setError]=useState(false);
+
+  function press(k){
+    if(k==="⌫"){setPin(p=>p.slice(0,-1));setError(false);return;}
+    const next=pin+k;
+    setPin(next);setError(false);
+    if(next.length===4){
+      if(next===ADMIN_PIN){onSuccess();}
+      else{setError(true);setTimeout(()=>{setPin("");setError(false);},600);}
+    }
+  }
+
+  return h("div",{style:{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}},
+    h("div",{style:{background:T.surf,borderRadius:20,padding:"32px 28px",width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.1)",textAlign:"center"}},
+      h("div",{style:{width:48,height:48,borderRadius:12,background:T.text,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}},
+        h("span",{style:{color:"#FFF",fontSize:22,fontWeight:900}},"Α")
+      ),
+      h("div",{style:{fontSize:18,fontWeight:800,color:T.text,marginBottom:4}},"Admin Access"),
+      h("div",{style:{fontSize:13,color:T.sub,marginBottom:28}},"Enter your PIN to continue"),
+      // dots
+      h("div",{style:{display:"flex",justifyContent:"center",gap:12,marginBottom:28}},
+        [0,1,2,3].map(i=>h("div",{key:i,style:{width:14,height:14,borderRadius:"50%",background:pin.length>i?(error?"#DC2626":T.text):T.border,transition:"background .15s"}}))
+      ),
+      // numpad
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}},
+        [1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>
+          h("button",{key:i,onClick:()=>k!==""&&press(String(k)),style:{
+            background:k===""?"transparent":T.faint,
+            border:"1px solid "+(k===""?"transparent":T.border),
+            borderRadius:12,padding:"16px 0",
+            fontSize:k==="⌫"?18:20,fontWeight:600,
+            color:error?"#DC2626":T.text,
+            cursor:k===""?"default":"pointer",
+          }},k)
+        )
+      ),
+      h("button",{onClick:onCancel,style:{background:"none",border:"none",color:T.sub,fontSize:13,cursor:"pointer",padding:"8px 16px"}},"Cancel")
+    )
+  );
+}
+
+// ── WorkerLogCard ──────────────────────────────────────────
+function WorkerLogCard({emp,entries,projs,onDelete}){
+  const [open,setOpen]=useState({});
+  const toggle=pid=>setOpen(p=>({...p,[pid]:!p[pid]}));
+  const projMap={};
+  entries.filter(e=>e.end).forEach(e=>{
+    if(!projMap[e.projId])projMap[e.projId]={ms:0,items:[]};
+    projMap[e.projId].ms+=(e.end-e.start);
+    projMap[e.projId].items.push(e);
+  });
+  const groups=Object.entries(projMap).map(([pid,pg])=>({
+    pid:+pid,proj:projs.find(x=>x.id===+pid),ms:pg.ms,
+    items:pg.items.sort((a,b)=>b.start-a.start),
+  })).sort((a,b)=>b.ms-a.ms);
+  const total=groups.reduce((s,g)=>s+g.ms,0);
+
+  return h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:12,marginBottom:12,overflow:"hidden"}},
+    h("div",{style:{padding:"14px 16px",borderBottom:"1px solid "+T.line,display:"flex",alignItems:"center",gap:10}},
+      h("div",{style:{width:10,height:10,borderRadius:"50%",background:emp.color,flexShrink:0}}),
+      h("span",{style:{fontWeight:700,fontSize:14,flex:1,color:T.text}},emp.name),
+      h("span",{style:{fontSize:12,color:T.sub}},emp.role),
+      h("span",{style:{fontSize:14,fontWeight:700,color:T.amber,marginLeft:8}},fmtHrs(total))
+    ),
+    h("div",{style:{padding:"10px 16px"}},
+      groups.map(g=>{
+        const isOpen=!!open[g.pid];
+        const pColor=g.proj?SC[g.proj.status]||T.dim:T.dim;
+        return h("div",{key:g.pid,style:{marginBottom:4}},
+          h("div",{onClick:()=>toggle(g.pid),style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.faint,borderRadius:8,cursor:"pointer",borderLeft:"3px solid "+pColor}},
+            h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},g.proj?.name||"Unknown"),
+            h("span",{style:{fontSize:13,fontWeight:700,color:T.amber}},fmtHrs(g.ms)),
+            h("span",{style:{fontSize:11,color:T.dim,marginLeft:2}},isOpen?"▲":"▼")
+          ),
+          isOpen&&h("div",{style:{paddingLeft:12,paddingTop:3}},
+            g.items.map(e=>h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderBottom:"1px solid "+T.line}},
+              h("span",{style:{fontSize:12,color:T.sub,minWidth:90,flexShrink:0}},fmtDate(e.start)),
+              h("span",{style:{fontSize:11,color:T.dim,flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
+              h("span",{style:{flex:1}}),
+              h("span",{style:{fontSize:13,fontWeight:600,color:T.text}},fmtHrs(e.end-e.start)),
+              h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",lineHeight:1}},"×")
+            ))
+          )
+        );
+      })
+    )
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────
+function App(){
+  const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
+  const [projs,setProjs]     = useState(()=>load("alfa_projs",  DEFAULT_PROJS));
+  const [entries,setEntries] = useState(()=>load("alfa_entries",DEFAULT_ENTRIES));
+  const [mode,setMode]       = useState("worker"); // "worker"|"pin"|"admin"
+  const [adminTab,setAdminTab] = useState("projects");
+  const [expandProj,setExpandProj] = useState(null);
+  const [expandCrew,setExpandCrew] = useState(null);
+  const [empSheet,setEmpSheet]   = useState(null);
+  const [projSheet,setProjSheet] = useState(null);
+  const [logSheet,setLogSheet]   = useState(null);
+  const [confirmEntry,setConfirmEntry] = useState(null);
+  const [ef,setEf] = useState({name:"",role:ROLES[0]});
+  const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
+  const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
+
+  // Persist
+  useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}},[emps]);
+  useEffect(()=>{try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}},[projs]);
+  useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}},[entries]);
+
+  const done    = entries.filter(e=>e.end);
+  const active  = entries.filter(e=>!e.end);
+  const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);
+  const activeProjs = projs.filter(p=>p.status!=="Completed");
+
+  function activeFor(eid,pid){return entries.find(e=>e.empId===eid&&e.projId===pid&&!e.end);}
+  function projMs(pid){return done.filter(e=>e.projId===pid).reduce((s,e)=>s+(e.end-e.start),0);}
+  function empMs(eid){return done.filter(e=>e.empId===eid).reduce((s,e)=>s+(e.end-e.start),0);}
+
+  function clockIn(eid,pid){
+    if(activeFor(eid,pid))return;
+    const now=Date.now();
+    setEntries(p=>[...p.map(e=>e.empId===eid&&!e.end?{...e,end:now}:e),{id:now+1,empId:eid,projId:pid,start:now,end:null}]);
+  }
+  function clockOut(id){setEntries(p=>p.map(e=>e.id===id?{...e,end:Date.now()}:e));}
+  function deleteEntry(id){setEntries(p=>p.filter(e=>e.id!==id));setConfirmEntry(null);}
+
+  function saveEmp(){
+    if(!ef.name.trim())return;
+    if(empSheet==="add") setEmps(p=>[...p,{id:Date.now(),name:ef.name,role:ef.role,color:COLORS[p.length%COLORS.length]}]);
+    else setEmps(p=>p.map(e=>e.id===empSheet.id?{...e,...ef}:e));
+    setEmpSheet(null);
+  }
+  function delEmp(id){
+    setEmps(p=>p.filter(e=>e.id!==id));
+    setEntries(p=>p.filter(e=>e.empId!==id));
+    setProjs(p=>p.map(x=>({...x,assignedTo:x.assignedTo.filter(i=>i!==id)})));
+  }
+  function saveProj(){
+    if(!pf.name.trim())return;
+    if(projSheet==="add") setProjs(p=>[...p,{id:Date.now(),...pf}]);
+    else setProjs(p=>p.map(x=>x.id===projSheet.id?{...x,...pf}:x));
+    setProjSheet(null);
+  }
+  function delProj(id){setProjs(p=>p.filter(x=>x.id!==id));setEntries(p=>p.filter(e=>e.projId!==id));}
+  function togAssign(id){setPf(f=>({...f,assignedTo:f.assignedTo.includes(id)?f.assignedTo.filter(i=>i!==id):[...f.assignedTo,id]}));}
+  function saveLog(){
+    const{empId,projId,hours,date}=lf;
+    if(!empId||!projId||!hours||isNaN(+hours)||+hours<=0)return;
+    const ms=+hours*3600000,base=new Date(date+"T07:00:00").getTime();
+    setEntries(p=>[...p,{id:Date.now(),empId:+empId,projId:+projId,start:base,end:base+ms}]);
+    setLogSheet(null);
+  }
+
+  const card={background:T.surf,border:"1px solid "+T.border,borderRadius:12,overflow:"hidden"};
+  const secLabel={fontSize:11,fontWeight:700,color:T.dim,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:10};
+
+  // ── PIN screen ─────────────────────────────────────────
+  if(mode==="pin") return h(PinScreen,{
+    onSuccess:()=>setMode("admin"),
+    onCancel:()=>setMode("worker"),
+  });
+
+  return h("div",{style:{minHeight:"100vh",background:T.bg,color:T.text}},
+
+    // HEADER
+    h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+        h("div",{style:{width:28,height:28,borderRadius:6,background:T.text,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+          h("span",{style:{color:"#FFF",fontSize:14,fontWeight:900,letterSpacing:"-1px"}},"Α")
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:15,fontWeight:800,color:T.text,letterSpacing:"-0.4px",lineHeight:1}},"Alfa Studio"),
+          h("div",{style:{fontSize:9,color:T.dim,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:1}},"Time Tracker")
+        )
+      ),
+      h("div",{style:{display:"flex",background:T.faint,borderRadius:10,padding:3,gap:2}},
+        h("button",{onClick:()=>setMode("worker"),style:{padding:"5px 14px",background:mode==="worker"?T.surf:"transparent",color:mode==="worker"?T.text:T.sub,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,boxShadow:mode==="worker"?"0 1px 4px rgba(0,0,0,0.08)":"none"}},"Worker"),
+        h("button",{onClick:()=>mode==="admin"?setMode("worker"):setMode("pin"),style:{padding:"5px 14px",background:mode==="admin"?T.surf:"transparent",color:mode==="admin"?T.text:T.sub,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,boxShadow:mode==="admin"?"0 1px 4px rgba(0,0,0,0.08)":"none"}},"Admin")
+      )
+    ),
+
+    // ═══ WORKER VIEW ═══
+    mode==="worker"&&h("div",{style:{padding:"16px 16px 40px",maxWidth:600,margin:"0 auto"}},
+
+      // Active banner
+      active.length>0&&h("div",{style:{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:12,padding:"12px 16px",marginBottom:16}},
+        h("div",{style:{fontSize:11,fontWeight:700,color:T.amber,letterSpacing:"0.06em",marginBottom:8}},"● CLOCKED IN"),
+        active.map(e=>{
+          const emp=emps.find(x=>x.id===e.empId),proj=projs.find(x=>x.id===e.projId);
+          if(!emp||!proj)return null;
+          return h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
+            h("span",{style:{fontWeight:600,fontSize:13,color:emp.color,minWidth:60}},emp.name),
+            h("span",{style:{flex:1,fontSize:12,color:T.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},proj.name),
+            h("span",{style:{fontSize:11,color:T.dim}},"since "+fmtTime(e.start)),
+            h("span",{style:{fontSize:12,fontWeight:700,color:T.amber,minWidth:36,textAlign:"right"}},h(LiveTimer,{start:e.start}))
+          );
+        })
+      ),
+
+      // Employee cards
+      emps.map(emp=>{
+        const myActive=active.filter(e=>e.empId===emp.id);
+        const isClockedIn=myActive.length>0;
+        return h("div",{key:emp.id,style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:16,marginBottom:20,overflow:"hidden",boxShadow:"0 4px 20px "+emp.color+"33"}},
+          // Header
+          h("div",{style:{padding:"16px 18px",display:"flex",alignItems:"center",gap:12,background:emp.color+"18"}},
+            h("div",{style:{width:40,height:40,borderRadius:"50%",background:emp.color+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+              h("span",{style:{fontSize:16,fontWeight:800,color:emp.color}},emp.name[0])
+            ),
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{fontSize:17,fontWeight:800,color:T.text,letterSpacing:"-0.3px"}},emp.name),
+              h("div",{style:{fontSize:12,color:T.sub,marginTop:1}},emp.role)
+            ),
+            isClockedIn
+              ? badge(T.green,"● Clocked In")
+              : h("span",{style:{fontSize:12,color:T.dim}},"Not working")
+          ),
+          h("div",{style:{height:1,background:isClockedIn?emp.color+"22":T.line}}),
+          // Projects
+          h("div",{style:{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}},
+            activeProjs.length===0&&h("span",{style:{fontSize:12,color:T.dim,padding:"8px 4px"}},"No active projects."),
+            activeProjs.map(proj=>{
+              const act=activeFor(emp.id,proj.id);
+              return h("div",{key:proj.id,style:{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:act?emp.color+"15":T.faint,border:"1.5px solid "+(act?emp.color+"66":T.border),borderRadius:12}},
+                h("div",{style:{flex:1,minWidth:0}},
+                  h("div",{style:{fontSize:14,fontWeight:700,color:T.text,marginBottom:act?3:0}},proj.name),
+                  act&&h("div",{style:{fontSize:12,color:emp.color,fontWeight:500}},
+                    "Since "+fmtTime(act.start)+" · ",h("strong",null,h(LiveTimer,{start:act.start}))
+                  )
+                ),
+                act
+                  ? h("button",{onClick:()=>clockOut(act.id),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,border:"1px solid "+emp.color+"88",background:emp.color+"33",color:emp.color,padding:"5px 12px"}},"Clock Out")
+                  : h("button",{onClick:()=>clockIn(emp.id,proj.id),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,border:"1px solid "+emp.color+"55",background:emp.color+"18",color:emp.color,padding:"5px 12px"}},"Clock In")
+              );
+            })
+          )
+        );
+      }),
+      emps.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew set up yet.")
+    ),
+
+    // ═══ ADMIN VIEW ═══
+    mode==="admin"&&h("div",null,
+      // Admin tabs
+      h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px"}},
+        [["projects","Projects"],["crew","Crew"],["log","Log"]].map(([t,l])=>
+          h("button",{key:t,onClick:()=>setAdminTab(t),style:{background:"none",border:"none",borderBottom:adminTab===t?"2px solid "+T.text:"2px solid transparent",color:adminTab===t?T.text:T.sub,padding:"12px 16px",cursor:"pointer",fontSize:13,fontWeight:adminTab===t?700:500,marginBottom:-1}},l)
+        )
+      ),
+      // Stats
+      h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,padding:"10px 20px",display:"flex",gap:24}},
+        [{l:"On Clock",v:active.length,c:T.green},{l:"Active Jobs",v:activeProjs.length,c:T.amber},{l:"Total Hours",v:fmtHrs(totalMs),c:T.blue}].map(s=>
+          h("div",{key:s.l,style:{display:"flex",alignItems:"baseline",gap:6}},
+            h("span",{style:{fontSize:18,fontWeight:700,color:s.c}},s.v),
+            h("span",{style:{fontSize:11,color:T.dim}},s.l)
+          )
+        )
+      ),
+
+      h("div",{style:{padding:"16px 16px 80px",maxWidth:680,margin:"0 auto"}},
+
+        // PROJECTS TAB
+        adminTab==="projects"&&h("div",null,
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+            h("span",{style:{fontSize:13,color:T.sub}},projs.length+" project"+(projs.length!==1?"s":"")),
+            h("div",{style:{display:"flex",gap:8}},
+              h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+              h(Btn,{label:"+ Project",size:"sm",onClick:()=>{setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});setProjSheet("add");}})
+            )
+          ),
+          projs.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No projects yet."),
+          projs.map(proj=>{
+            const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
+            const hrs=projMs(proj.id);
+            const isLive=active.some(e=>e.projId===proj.id);
+            const isExp=expandProj===proj.id;
+            const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
+            return h("div",{key:proj.id,style:{...card,marginBottom:8}},
+              h("div",{style:{padding:"14px 16px",cursor:"pointer"},onClick:()=>setExpandProj(isExp?null:proj.id)},
+                h("div",{style:{display:"flex",alignItems:"flex-start",gap:8}},
+                  h("div",{style:{flex:1,minWidth:0}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}},
+                      h("span",{style:{fontSize:15,fontWeight:700,color:T.text}},proj.name),
+                      isLive&&badge(T.green,"● Live"),
+                      hrs>0&&h("span",{style:{fontSize:12,color:T.amber,fontWeight:600}},"⏱ "+fmtHrs(hrs))
+                    ),
+                    h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+                      h("select",{value:proj.status,onClick:e=>e.stopPropagation(),onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x)),style:{background:SC[proj.status]+"15",color:SC[proj.status],border:"1px solid "+SC[proj.status]+"40",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer",outline:"none",appearance:"none"}},
+                        STATUSES.map(s=>h("option",{key:s,value:s},s))
+                      ),
+                      proj.deadline&&h("span",{style:{fontSize:11,color:T.dim}},"Due "+proj.deadline),
+                      crew.map(e=>h("span",{key:e.id,style:{fontSize:11,color:e.color,fontWeight:600}},e.name))
+                    )
+                  ),
+                  h("span",{style:{color:T.dim,fontSize:12,flexShrink:0,marginTop:2}},isExp?"▲":"▼")
+                )
+              ),
+              isExp&&h("div",{style:{borderTop:"1px solid "+T.line}},
+                proj.status!=="Completed"&&h("div",{style:{padding:"14px 16px",borderBottom:"1px solid "+T.line}},
+                  h("div",{style:secLabel},"Clock In / Out"),
+                  emps.map(emp=>{
+                    const act=activeFor(emp.id,proj.id);
+                    return h("div",{key:emp.id,style:{display:"flex",alignItems:"center",gap:10,marginBottom:8}},
+                      h("div",{style:{width:7,height:7,borderRadius:"50%",background:emp.color,flexShrink:0}}),
+                      h("span",{style:{flex:1,fontSize:13,fontWeight:500}},emp.name),
+                      act&&h("span",{style:{fontSize:11,color:T.dim}},"since "+fmtTime(act.start)),
+                      act&&h("span",{style:{fontSize:12,fontWeight:700,color:T.amber,minWidth:36,textAlign:"right"}},h(LiveTimer,{start:act.start})),
+                      act
+                        ? h(Btn,{label:"Out",size:"sm",variant:"ghost",onClick:()=>clockOut(act.id)})
+                        : h(Btn,{label:"In",size:"sm",variant:"green",onClick:()=>clockIn(emp.id,proj.id)})
+                    );
+                  })
+                ),
+                h("div",{style:{padding:"14px 16px"}},
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                    h("div",{style:secLabel},"Time Log "+(hrs>0?h("span",{style:{color:T.amber,fontWeight:700,fontSize:12,textTransform:"none",letterSpacing:0}},fmtHrs(hrs)+" total"):"")),
+                    h("div",{style:{display:"flex",gap:6}},
+                      h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+                      h(Btn,{label:"Edit",size:"sm",variant:"ghost",onClick:()=>{setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo]});setProjSheet(proj);}}),
+                      h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>{setExpandProj(null);delProj(proj.id);}})
+                    )
+                  ),
+                  projDone.length===0
+                    ? h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No hours logged yet.")
+                    : projDone.map(e=>{
+                        const emp=emps.find(x=>x.id===e.empId);
+                        return h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid "+T.line}},
+                          emp&&h("span",{style:{fontSize:12,fontWeight:600,color:emp.color,minWidth:56}},emp.name),
+                          h("span",{style:{fontSize:12,color:T.sub,minWidth:80}},fmtDate(e.start)),
+                          h("span",{style:{fontSize:11,color:T.dim}},fmtTime(e.start)+"–"+fmtTime(e.end)),
+                          h("span",{style:{flex:1}}),
+                          h("span",{style:{fontSize:13,fontWeight:600,color:T.text}},fmtHrs(e.end-e.start)),
+                          h("button",{onClick:()=>setConfirmEntry(e),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px"}},"×")
+                        );
+                      })
+                )
+              )
+            );
+          })
+        ),
+
+        // CREW TAB
+        adminTab==="crew"&&h("div",null,
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+            h("span",{style:{fontSize:13,color:T.sub}},emps.length+" crew member"+(emps.length!==1?"s":"")),
+            h(Btn,{label:"+ Employee",size:"sm",onClick:()=>{setEf({name:"",role:ROLES[0]});setEmpSheet("add");}})
+          ),
+          emps.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew yet."),
+          emps.map(emp=>{
+            const myProjs=projs.filter(p=>p.assignedTo.includes(emp.id));
+            const hrs=empMs(emp.id);
+            const isActive=active.some(e=>e.empId===emp.id);
+            const isExp=expandCrew===emp.id;
+            return h("div",{key:emp.id,style:{...card,marginBottom:8}},
+              h("div",{style:{padding:"14px 16px",cursor:"pointer"},onClick:()=>setExpandCrew(isExp?null:emp.id)},
+                h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                  h("div",{style:{width:9,height:9,borderRadius:"50%",background:emp.color,flexShrink:0}}),
+                  h("div",{style:{flex:1,minWidth:0}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
+                      h("span",{style:{fontSize:15,fontWeight:700}},emp.name),
+                      isActive&&badge(T.green,"● On Clock")
+                    ),
+                    h("div",{style:{fontSize:12,color:T.sub}},emp.role+(hrs>0?" · ":""),hrs>0&&h("span",{style:{color:T.amber,fontWeight:600}},fmtHrs(hrs)+" total"))
+                  ),
+                  h("span",{style:{color:T.dim,fontSize:12}},isExp?"▲":"▼")
+                )
+              ),
+              isExp&&h("div",{style:{borderTop:"1px solid "+T.line,padding:"14px 16px"}},
+                myProjs.length>0&&h("div",{style:{marginBottom:14}},
+                  h("div",{style:secLabel},"Projects"),
+                  myProjs.map(p=>{
+                    const ph=done.filter(e=>e.empId===emp.id&&e.projId===p.id).reduce((s,e)=>s+(e.end-e.start),0);
+                    const act=activeFor(emp.id,p.id);
+                    return h("div",{key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+T.line}},
+                      h("div",{style:{width:6,height:6,borderRadius:"50%",background:SC[p.status]||T.dim,flexShrink:0}}),
+                      h("span",{style:{flex:1,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},p.name),
+                      act&&h("span",{style:{fontSize:12,fontWeight:700,color:T.green}},h(LiveTimer,{start:act.start})),
+                      ph>0&&!act&&h("span",{style:{fontSize:12,fontWeight:600,color:T.amber}},fmtHrs(ph)),
+                      h("span",{style:{fontSize:11,color:SC[p.status]||T.dim,fontWeight:600}},p.status)
+                    );
+                  })
+                ),
+                h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+                  h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:String(emp.id),projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+                  h(Btn,{label:"Edit",size:"sm",variant:"ghost",onClick:()=>{setEf({name:emp.name,role:emp.role});setEmpSheet(emp);}}),
+                  h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>delEmp(emp.id)})
+                )
+              )
+            );
+          })
+        ),
+
+        // LOG TAB
+        adminTab==="log"&&h("div",null,
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+            h("span",{style:{fontSize:13,color:T.sub}},done.length+" entr"+(done.length!==1?"ies":"y")+" · "+fmtHrs(totalMs)+" total"),
+            h(Btn,{label:"+ Log Hours",size:"sm",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}})
+          ),
+          done.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No time logged yet."),
+
+          // PROJECT TOTALS SUMMARY
+          done.length>0&&h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:12,marginBottom:20,overflow:"hidden"}},
+            h("div",{style:{padding:"12px 16px",borderBottom:"1px solid "+T.line,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},"Project Totals"),
+              h("span",{style:{fontSize:12,color:T.amber,fontWeight:600}},fmtHrs(totalMs)+" total")
+            ),
+            h("div",{style:{padding:"8px 16px"}},
+              projs.map(proj=>{
+                const projTotal=done.filter(e=>e.projId===proj.id).reduce((s,e)=>s+(e.end-e.start),0);
+                if(!projTotal)return null;
+                const projEmps=emps.filter(emp=>done.some(e=>e.projId===proj.id&&e.empId===emp.id));
+                return h("div",{key:proj.id,style:{padding:"10px 0",borderBottom:"1px solid "+T.line}},
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},
+                    h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},proj.name),
+                    h("span",{style:{fontSize:14,fontWeight:700,color:T.amber}},fmtHrs(projTotal))
+                  ),
+                  h("div",{style:{display:"flex",gap:12,flexWrap:"wrap"}},
+                    projEmps.map(emp=>{
+                      const empProjTotal=done.filter(e=>e.projId===proj.id&&e.empId===emp.id).reduce((s,e)=>s+(e.end-e.start),0);
+                      return h("span",{key:emp.id,style:{fontSize:11,color:emp.color,fontWeight:600}},
+                        emp.name+": "+fmtHrs(empProjTotal)
+                      );
+                    })
+                  )
+                );
+              })
+            )
+          ),
+
+          // PER EMPLOYEE BREAKDOWN
+          emps.map(emp=>{
+            const empDone=done.filter(e=>e.empId===emp.id);
+            if(!empDone.length)return null;
+            return h(WorkerLogCard,{key:emp.id,emp,entries:empDone,projs,onDelete:setConfirmEntry});
+          })
+        )
+      ),
+
+      // Lock button
+      h("div",{style:{position:"fixed",bottom:24,right:20,zIndex:50}},
+        h("button",{onClick:()=>setMode("worker"),style:{background:T.text,color:"#FFF",border:"none",borderRadius:12,padding:"10px 18px",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}},"🔒 Lock")
+      )
+    ),
+
+    // SHEETS
+    empSheet&&h(Sheet,{title:empSheet==="add"?"New Employee":"Edit Employee",onClose:()=>setEmpSheet(null)},
+      h(Field,{label:"Full Name",value:ef.name,onChange:v=>setEf({...ef,name:v})}),
+      h(Field,{label:"Role",value:ef.role,onChange:v=>setEf({...ef,role:v}),options:ROLES}),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setEmpSheet(null)}),
+        h(Btn,{label:"Save",onClick:saveEmp})
+      )
+    ),
+
+    projSheet&&h(Sheet,{title:projSheet==="add"?"New Project":"Edit Project",onClose:()=>setProjSheet(null)},
+      h(Field,{label:"Project Name",value:pf.name,onChange:v=>setPf({...pf,name:v})}),
+      h(Field,{label:"Client",value:pf.client,onChange:v=>setPf({...pf,client:v})}),
+      h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
+      h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
+      h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:8}},"Assign Crew"),
+        h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
+          emps.map(e=>{
+            const sel=pf.assignedTo.includes(e.id);
+            return h("button",{key:e.id,onClick:()=>togAssign(e.id),style:{background:sel?e.color+"15":T.faint,border:"1px solid "+(sel?e.color:T.border),color:sel?e.color:T.sub,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,fontWeight:sel?700:400}},e.name);
+          })
+        )
+      ),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setProjSheet(null)}),
+        h(Btn,{label:"Save",onClick:saveProj})
+      )
+    ),
+
+    logSheet&&h(Sheet,{title:"Log Hours",onClose:()=>setLogSheet(null)},
+      h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Employee"),
+        h("select",{value:lf.empId,onChange:e=>setLf({...lf,empId:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+          h("option",{value:""},"Select employee…"),
+          emps.map(e=>h("option",{key:e.id,value:e.id},e.name))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Project"),
+        h("select",{value:lf.projId,onChange:e=>setLf({...lf,projId:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+          h("option",{value:""},"Select project…"),
+          projs.map(p=>h("option",{key:p.id,value:p.id},p.name))
+        )
+      ),
+      h(Field,{label:"Hours worked (e.g. 3.5)",value:lf.hours,onChange:v=>setLf({...lf,hours:v})}),
+      h(Field,{label:"Date",value:lf.date,onChange:v=>setLf({...lf,date:v}),type:"date"}),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setLogSheet(null)}),
+        h(Btn,{label:"Save Entry",onClick:saveLog})
+      )
+    ),
+
+    confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,onConfirm:()=>deleteEntry(confirmEntry.id),onCancel:()=>setConfirmEntry(null)})
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>

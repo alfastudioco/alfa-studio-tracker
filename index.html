@@ -250,6 +250,11 @@ function App(){
   const [empDrafts,setEmpDrafts] = useState({}); // {id: {name,role,rate}}
   const [empSheet,setEmpSheet]   = useState(null);
   const [editingProj,setEditingProj] = useState(null); // proj id being edited inline
+  const [projFilter,setProjFilter] = useState("All");
+  const [logRange,setLogRange] = useState("week");
+  const [weekOffset,setWeekOffset] = useState(0);
+  const [logProjFilter,setLogProjFilter] = useState("all"); // "all" or proj.id
+  const [summaryOpen,setSummaryOpen] = useState(true);
   const [editingEmp,setEditingEmp]   = useState(null); // emp id being edited inline
   const [projSheet,setProjSheet] = useState(null);
   const [logSheet,setLogSheet]   = useState(null);
@@ -421,12 +426,27 @@ function App(){
 
         // PROJECTS TAB
         adminTab==="projects"&&h("div",null,
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
             h("span",{style:{fontSize:13,color:T.sub}},projs.length+" project"+(projs.length!==1?"s":"")),
             h("div",{style:{display:"flex",gap:8}},
               h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
               h(Btn,{label:"+ Project",size:"sm",onClick:()=>{setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});setEditingProj("new");}})
             )
+          ),
+          // Status filter pills
+          h("div",{style:{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}},
+            ["All",...STATUSES].map(s=>{
+              const count=s==="All"?projs.length:projs.filter(p=>p.status===s).length;
+              const active=projFilter===s;
+              const color=s==="All"?T.text:SC[s]||T.text;
+              return h("button",{key:s,onClick:()=>setProjFilter(s),style:{
+                background:active?(s==="All"?T.text:color+"18"):T.faint,
+                color:active?(s==="All"?"#FFF":color):T.sub,
+                border:"1px solid "+(active?(s==="All"?T.text:color+"66"):T.border),
+                borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:active?700:400,
+                cursor:"pointer",whiteSpace:"nowrap"
+              }},s+(count>0?" ("+count+")":""));
+            })
           ),
 
           // Inline new project form
@@ -450,8 +470,8 @@ function App(){
             )
           ),
 
-          projs.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No projects yet."),
-          projs.map(proj=>{
+          ...(projFilter==="All"?projs:projs.filter(p=>p.status===projFilter)).length===0?[h("div",{key:"empty",style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},projFilter==="All"?"No projects yet.":"No "+projFilter+" projects.")]:[],
+          ...(projFilter==="All"?projs:projs.filter(p=>p.status===projFilter)).map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
@@ -645,63 +665,125 @@ function App(){
         ),
 
         // LOG TAB
-        adminTab==="log"&&h("div",null,
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
-            h("span",{style:{fontSize:13,color:T.sub}},done.length+" entr"+(done.length!==1?"ies":"y")+" · "+fmtHrs(totalMs)+" total"),
-            h(Btn,{label:"+ Log Hours",size:"sm",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}})
-          ),
-          done.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No time logged yet."),
+        adminTab==="log"&&(()=>{
+          // Compute date window
+          const now=new Date();
+          let winStart=null,winEnd=null,winLabel="";
+          if(logRange==="week"){
+            const d=new Date(now);
+            d.setDate(d.getDate()-d.getDay()+weekOffset*7); d.setHours(0,0,0,0);
+            winStart=d.getTime();
+            const e2=new Date(d); e2.setDate(e2.getDate()+7); winEnd=e2.getTime();
+            const mo=new Intl.DateTimeFormat([],{month:"short",day:"numeric"});
+            winLabel=mo.format(d)+" – "+mo.format(new Date(winEnd-1));
+          } else if(logRange==="month"){
+            const d=new Date(now.getFullYear(),now.getMonth()+weekOffset,1);
+            winStart=d.getTime();
+            const e2=new Date(d.getFullYear(),d.getMonth()+1,1); winEnd=e2.getTime();
+            winLabel=d.toLocaleDateString([],{month:"long",year:"numeric"});
+          }
+          const filtDone=winStart?done.filter(e=>e.start>=winStart&&e.start<winEnd):done;
+          const filtMs=filtDone.reduce((s,e)=>s+(e.end-e.start),0);
+          const filtCost=filtDone.reduce((s,e)=>s+entryCost(e),0);
 
-          // PROJECT TOTALS SUMMARY
-          done.length>0&&h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:12,marginBottom:20,overflow:"hidden"}},
-            h("div",{style:{padding:"12px 16px",borderBottom:"1px solid "+T.line,display:"flex",justifyContent:"space-between",alignItems:"center"}},
-              h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},"Project Totals"),
-              h("div",{style:{display:"flex",gap:12,alignItems:"baseline"}},
-                h("span",{style:{fontSize:12,color:T.amber,fontWeight:600}},fmtHrs(totalMs)),
-                h("span",{style:{fontSize:12,color:T.green,fontWeight:600}},fmtCost(done.reduce((s,e)=>s+entryCost(e),0)))
+          // CSV export
+          function exportCSV(){
+            const rows=[["Employee","Project","Date","Start","End","Hours","Cost"]];
+            filtDone.forEach(e=>{
+              const emp=emps.find(x=>x.id===e.empId),proj=projs.find(x=>x.id===e.projId);
+              const hrs=((e.end-e.start)/3600000).toFixed(2);
+              const cost=entryCost(e).toFixed(2);
+              rows.push([emp?.name||"?",proj?.name||"?",fmtDate(e.start),fmtTime(e.start),fmtTime(e.end),hrs,cost]);
+            });
+            const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
+            const a=document.createElement("a");
+            a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+            a.download="alfa-studio-log"+(winLabel?"-"+winLabel:"")+".csv";
+            a.click();
+          }
+
+          return h("div",null,
+            // ── Controls row ──
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+              h("div",{style:{display:"flex",background:T.faint,borderRadius:8,padding:2,gap:2}},
+                [["week","Week"],["month","Month"],["all","All"]].map(([v,l])=>
+                  h("button",{key:v,onClick:()=>{setLogRange(v);setWeekOffset(0);},style:{padding:"5px 12px",background:logRange===v?T.surf:"transparent",color:logRange===v?T.text:T.sub,border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:logRange===v?700:400,boxShadow:logRange===v?"0 1px 3px rgba(0,0,0,0.08)":"none"}},l)
+                )
+              ),
+              h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+                h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+                h("button",{onClick:exportCSV,style:{background:T.green+"15",color:T.green,border:"1px solid "+T.green+"44",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}},"↓ CSV")
               )
             ),
-            h("div",{style:{padding:"8px 16px"}},
-              projs.map(proj=>{
-                const projEntries=done.filter(e=>e.projId===proj.id);
-                const projTotal=projEntries.reduce((s,e)=>s+(e.end-e.start),0);
-                if(!projTotal)return null;
-                const projCost=projEntries.reduce((s,e)=>s+entryCost(e),0);
-                const projEmps=emps.filter(emp=>projEntries.some(e=>e.empId===emp.id));
-                return h("div",{key:proj.id,style:{padding:"10px 0",borderBottom:"1px solid "+T.line}},
-                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
-                    h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},proj.name),
-                    h("div",{style:{display:"flex",gap:10,alignItems:"baseline"}},
-                      h("span",{style:{fontSize:13,fontWeight:700,color:T.amber}},fmtHrs(projTotal)),
-                      projCost>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},fmtCost(projCost))
-                    )
-                  ),
-                  h("div",{style:{display:"flex",flexDirection:"column",gap:3}},
-                    projEmps.map(emp=>{
-                      const empEntries=projEntries.filter(e=>e.empId===emp.id);
-                      const empHrsMs=empEntries.reduce((s,e)=>s+(e.end-e.start),0);
-                      const empCost=empEntries.reduce((s,e)=>s+entryCost(e),0);
-                      return h("div",{key:emp.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}},
-                        h("span",{style:{fontSize:12,color:emp.color,fontWeight:600}},emp.name+(emp.rate?" ($"+emp.rate+"/h)":" (no rate)")),
-                        h("div",{style:{display:"flex",gap:10}},
-                          h("span",{style:{fontSize:12,color:T.sub}},fmtHrs(empHrsMs)),
-                          empCost>0&&h("span",{style:{fontSize:12,color:T.green,fontWeight:600}},fmtCost(empCost))
-                        )
-                      );
-                    })
-                  )
-                );
-              })
-            )
-          ),
 
-          // PER EMPLOYEE BREAKDOWN
-          emps.map(emp=>{
-            const empDone=done.filter(e=>e.empId===emp.id);
-            if(!empDone.length)return null;
-            return h(WorkerLogCard,{key:emp.id,emp,entries:empDone,projs,onDelete:setConfirmEntry});
-          })
-        )
+            // ── Week/Month navigation ──
+            logRange!=="all"&&h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,padding:"8px 12px",background:T.surf,border:"1px solid "+T.border,borderRadius:10}},
+              h("button",{onClick:()=>setWeekOffset(w=>w-1),style:{background:"none",border:"none",fontSize:18,cursor:"pointer",color:T.sub,padding:"0 8px"}},"‹"),
+              h("span",{style:{fontSize:13,fontWeight:600,color:T.text}},winLabel),
+              h("button",{onClick:()=>setWeekOffset(w=>Math.min(w+1,0)),style:{background:"none",border:"none",fontSize:18,cursor:"pointer",color:weekOffset===0?T.border:T.sub,padding:"0 8px"}},"›")
+            ),
+
+            // ── Project filter pills ──
+            filtDone.length>0&&h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}},
+              h("button",{onClick:()=>setLogProjFilter("all"),style:{background:logProjFilter==="all"?T.text:T.faint,color:logProjFilter==="all"?"#FFF":T.sub,border:"1px solid "+(logProjFilter==="all"?T.text:T.border),borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:logProjFilter==="all"?700:400,cursor:"pointer"}},"All Projects"),
+              projs.filter(proj=>filtDone.some(e=>e.projId===proj.id)).map(proj=>
+                h("button",{key:proj.id,onClick:()=>setLogProjFilter(proj.id===logProjFilter?"all":proj.id),style:{background:logProjFilter===proj.id?SC[proj.status]+"22":T.faint,color:logProjFilter===proj.id?SC[proj.status]:T.sub,border:"1px solid "+(logProjFilter===proj.id?SC[proj.status]+"66":T.border),borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:logProjFilter===proj.id?700:400,cursor:"pointer",whiteSpace:"nowrap"}},proj.name)
+              )
+            ),
+
+            // ── Collapsible cost summary ──
+            filtDone.length>0&&h("div",{style:{background:T.text,borderRadius:12,marginBottom:14,overflow:"hidden"}},
+              // Header — always visible, tap to collapse
+              h("div",{onClick:()=>setSummaryOpen(o=>!o),style:{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}},
+                h("span",{style:{fontSize:12,fontWeight:700,color:"rgba(255,255,255,0.7)",letterSpacing:"0.05em",textTransform:"uppercase"}},"Project Totals"),
+                h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
+                  h("span",{style:{fontSize:13,fontWeight:700,color:T.amber}},fmtHrs(filtMs)),
+                  filtCost>0&&h("span",{style:{fontSize:13,fontWeight:700,color:"#6EE7B7"}},fmtCost(filtCost)),
+                  h("span",{style:{fontSize:12,color:"rgba(255,255,255,0.4)",marginLeft:4}},summaryOpen?"▲":"▼")
+                )
+              ),
+              // Expandable rows
+              summaryOpen&&h("div",{style:{padding:"0 16px 12px"}},
+                projs.filter(proj=>{
+                  const pe=filtDone.filter(e=>e.projId===proj.id);
+                  return pe.reduce((s,e)=>s+(e.end-e.start),0)>0 && (logProjFilter==="all"||logProjFilter===proj.id);
+                }).map(proj=>{
+                  const pe=filtDone.filter(e=>e.projId===proj.id);
+                  const pm2=pe.reduce((s,e)=>s+(e.end-e.start),0);
+                  const pc=pe.reduce((s,e)=>s+entryCost(e),0);
+                  const pEmps=emps.filter(emp=>pe.some(e=>e.empId===emp.id));
+                  return h("div",{key:proj.id,style:{paddingBottom:8,marginBottom:8,borderBottom:"1px solid rgba(255,255,255,0.08)"}},
+                    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
+                      h("span",{style:{fontSize:13,fontWeight:700,color:"#FFF"}},proj.name),
+                      h("div",{style:{display:"flex",gap:10}},
+                        h("span",{style:{fontSize:13,fontWeight:700,color:T.amber}},fmtHrs(pm2)),
+                        pc>0&&h("span",{style:{fontSize:13,fontWeight:700,color:"#6EE7B7"}},fmtCost(pc))
+                      )
+                    ),
+                    h("div",{style:{display:"flex",gap:12,flexWrap:"wrap"}},
+                      pEmps.map(emp=>{
+                        const ee=pe.filter(e=>e.empId===emp.id);
+                        const em2=ee.reduce((s,e)=>s+(e.end-e.start),0);
+                        const ec=ee.reduce((s,e)=>s+entryCost(e),0);
+                        return h("span",{key:emp.id,style:{fontSize:11,color:emp.color,fontWeight:600}},
+                          emp.name+": "+fmtHrs(em2)+(ec>0?" · "+fmtCost(ec):"")
+                        );
+                      })
+                    )
+                  );
+                })
+              )
+            ),
+
+            // ── Per employee breakdown ──
+            filtDone.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No entries for this period."),
+            emps.map(emp=>{
+              const empDone=filtDone.filter(e=>e.empId===emp.id&&(logProjFilter==="all"||e.projId===logProjFilter));
+              if(!empDone.length)return null;
+              return h(WorkerLogCard,{key:emp.id,emp,entries:empDone,projs,onDelete:setConfirmEntry});
+            })
+          );
+        })()
       ),
 
       // Lock button

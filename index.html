@@ -490,10 +490,26 @@ function App(){
   const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
-  // Persist
-  useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}},[emps]);
-  useEffect(()=>{try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}},[projs]);
-  useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}},[entries]);
+  // Persist — use ref to skip first render so we don't overwrite Supabase on load
+  const isFirstRender = React.useRef({emps:true, projs:true, entries:true});
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
+    if(isFirstRender.current.emps){ isFirstRender.current.emps=false; return; }
+    dbSave("employees", emps);
+  },[emps]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}
+    if(isFirstRender.current.projs){ isFirstRender.current.projs=false; return; }
+    dbSave("projects", projs);
+  },[projs]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}
+    if(isFirstRender.current.entries){ isFirstRender.current.entries=false; return; }
+    dbSave("entries", entries);
+  },[entries]);
 
   const done    = entries.filter(e=>e.end);
   const active  = entries.filter(e=>!e.end);

@@ -422,7 +422,7 @@ function App(){
       ),
 
       // Employee cards — 2 columns, always visible
-      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}},
         emps.map(emp=>{
           const isClockedIn=active.some(e=>e.empId===emp.id);
           return h("div",{key:emp.id,style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22"}},

@@ -29,39 +29,54 @@ const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authoriza
 
 async function dbLoad(table) {
   try {
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {headers:SB_HEADERS});
-    if (!r.ok) { console.error("dbLoad failed", table, r.status, await r.text()); return null; }
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {
+      method: "GET",
+      mode: "cors",
+      headers: SB_HEADERS
+    });
+    if (!r.ok) { console.error("dbLoad failed", table, r.status); return null; }
     const rows = await r.json();
     if (!Array.isArray(rows) || rows.length===0) return null;
     return rows.map(row => row.data);
-  } catch(e) { console.error("dbLoad error", table, e); return null; }
+  } catch(e) { console.error("dbLoad error", table, e.message); return null; }
 }
 
 async function dbSave(table, items) {
   try {
-    if (!items || items.length === 0) {
-      // Delete all rows if empty
-      await fetch(SB_URL+"/rest/v1/"+table+"?id=neq.0", {method:"DELETE", headers:SB_HEADERS});
-      return;
-    }
-    // Upsert — note the correct Prefer header for upsert
-    const body = items.map(item => ({id: item.id, data: item}));
+    if (!items || items.length === 0) return;
+    const body = items.map(item => ({id: String(item.id), data: item}));
     const r = await fetch(SB_URL+"/rest/v1/"+table, {
       method: "POST",
+      mode: "cors",
       headers: {...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
       body: JSON.stringify(body)
     });
-    if (!r.ok) { console.error("dbSave upsert failed", table, r.status, await r.text()); return; }
-    // Delete rows no longer in list
-    const currentIds = items.map(i => i.id).join(",");
-    await fetch(SB_URL+"/rest/v1/"+table+"?id=not.in.("+currentIds+")", {
-      method: "DELETE", headers: SB_HEADERS
+    if (!r.ok) {
+      const txt = await r.text();
+      console.error("dbSave failed", table, r.status, txt);
+    }
+  } catch(e) { console.error("dbSave error", table, e.message); }
+}
+
+async function dbDelete(table, keepIds) {
+  try {
+    if (!keepIds || keepIds.length === 0) return;
+    const ids = keepIds.map(i => String(i)).join(",");
+    await fetch(SB_URL+"/rest/v1/"+table+"?id=not.in.("+ids+")", {
+      method: "DELETE", mode: "cors", headers: SB_HEADERS
     });
-  } catch(e) { console.error("dbSave error", table, e); }
+  } catch(e) { console.error("dbDelete error", table, e.message); }
 }
 
 async function dbPushAll(emps, projs, entries) {
-  await Promise.all([dbSave("employees",emps), dbSave("projects",projs), dbSave("entries",entries)]);
+  await Promise.all([
+    dbSave("employees", emps),
+    dbSave("projects",  projs),
+    dbSave("entries",   entries),
+    dbDelete("employees", emps.map(x=>String(x.id))),
+    dbDelete("projects",  projs.map(x=>String(x.id))),
+    dbDelete("entries",   entries.map(x=>String(x.id))),
+  ]);
 }
 
 // ── Constants ──────────────────────────────────────────────
@@ -338,7 +353,7 @@ function ImportSheet({emps, projs, onClose, onSave}) {
     const entries = valid.map(r=>{
       const ms=+r.hours*3600000;
       const base=new Date(r.date+"T07:00:00").getTime();
-      return {id:Date.now()+Math.random(),empId:+r.empId,projId:+r.projId,start:base,end:base+ms};
+      return {id:Date.now()+Math.floor(Math.random()*1000),empId:+r.empId,projId:+r.projId,start:base,end:base+ms};
     });
     onSave(entries);
   }
@@ -492,6 +507,13 @@ function App(){
     setEntries(p=>[...p.map(e=>e.empId===eid&&!e.end?{...e,end:now}:e),{id:now+1,empId:eid,projId:pid,start:now,end:null}]);
   }
   function clockOut(id){setEntries(p=>p.map(e=>e.id===id?{...e,end:Date.now()}:e));}
+  async function manualSync() {
+    setSyncing(true);
+    try {
+      await Promise.all([dbSave("employees",emps),dbSave("projects",projs),dbSave("entries",entries)]);
+    } catch(e) { console.error("manualSync error", e); }
+    setSyncing(false);
+  }
   function deleteEntry(id){setEntries(p=>p.filter(e=>e.id!==id));setConfirmEntry(null);}
 
   function saveEmp(){

@@ -22,6 +22,42 @@ input,select,button{font-family:inherit;}
 <script>
 const {useState, useEffect, createElement:h} = React;
 
+// ── Supabase ───────────────────────────────────────────────
+const SB_URL = "https://dasufgubibuutrpwounv.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhc3VmZ3ViaWJ1dXRycHdvdW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTA3NzUsImV4cCI6MjA5MDQ2Njc3NX0.Uq8mP5RW0MhLBvInhUW4mxQVNa3sH4ak-1WRU4KRp14";
+const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
+
+async function dbLoad(table) {
+  try {
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*", {headers:SB_HEADERS});
+    const rows = await r.json();
+    if (!Array.isArray(rows)) return null;
+    return rows.map(r => r.data);
+  } catch(e) { return null; }
+}
+
+async function dbSave(table, items) {
+  try {
+    // Upsert all items
+    const body = items.map(item => ({id: item.id, data: item}));
+    await fetch(SB_URL+"/rest/v1/"+table, {
+      method:"POST",
+      headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},
+      body: JSON.stringify(body)
+    });
+    // Delete removed items — get existing ids then delete ones not in current list
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=id", {headers:SB_HEADERS});
+    const existing = await r.json();
+    const currentIds = new Set(items.map(i => i.id));
+    const toDelete = existing.filter(row => !currentIds.has(row.id)).map(row => row.id);
+    if (toDelete.length > 0) {
+      await fetch(SB_URL+"/rest/v1/"+table+"?id=in.("+toDelete.join(",")+")", {
+        method:"DELETE", headers:SB_HEADERS
+      });
+    }
+  } catch(e) { console.error("dbSave error", e); }
+}
+
 // ── Constants ──────────────────────────────────────────────
 const ADMIN_PIN = "7513";
 const COLORS = ["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5"];
@@ -242,6 +278,18 @@ function App(){
   const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
   const [projs,setProjs]     = useState(()=>load("alfa_projs",  DEFAULT_PROJS));
   const [entries,setEntries] = useState(()=>load("alfa_entries",DEFAULT_ENTRIES));
+  const [dbReady,setDbReady] = useState(false);
+
+  // Load from Supabase on mount, fall back to localStorage
+  useEffect(()=>{
+    (async()=>{
+      const [e,p,en] = await Promise.all([dbLoad("employees"),dbLoad("projects"),dbLoad("entries")]);
+      if(e&&e.length>0)  setEmps(e);
+      if(p&&p.length>0)  setProjs(p);
+      if(en&&en.length>=0) setEntries(en);
+      setDbReady(true);
+    })();
+  },[]);
   const [mode,setMode]       = useState("worker");
   const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
   const [adminTab,setAdminTab] = useState("projects");
@@ -333,7 +381,7 @@ function App(){
         ),
         h("div",null,
           h("div",{style:{fontSize:15,fontWeight:800,color:T.text,letterSpacing:"-0.4px",lineHeight:1}},"Alfa Studio"),
-          h("div",{style:{fontSize:9,color:T.dim,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:1}},"Time Tracker")
+          h("div",{style:{fontSize:9,color:T.dim,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:1}},dbReady?"✦ LIVE":"⟳ SYNCING...")
         )
       ),
       h("div",{style:{display:"flex",background:T.faint,borderRadius:10,padding:3,gap:2}},

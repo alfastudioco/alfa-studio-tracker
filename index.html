@@ -196,6 +196,17 @@ function PinScreen({onSuccess,onCancel}){
     }
   }
 
+  // Keyboard support
+  useEffect(()=>{
+    function onKey(e){
+      if(e.key>="0"&&e.key<="9") press(e.key);
+      else if(e.key==="Backspace") press("⌫");
+      else if(e.key==="Escape") onCancel();
+    }
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[pin]);
+
   return h("div",{style:{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}},
     h("div",{style:{background:T.surf,borderRadius:20,padding:"32px 28px",width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.1)",textAlign:"center"}},
       h("div",{style:{width:48,height:48,borderRadius:12,background:T.text,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}},
@@ -303,6 +314,8 @@ function App(){
   const [weekOffset,setWeekOffset] = useState(0);
   const [logProjFilter,setLogProjFilter] = useState("all"); // "all" or proj.id
   const [summaryOpen,setSummaryOpen] = useState(true);
+  const [importSheet,setImportSheet] = useState(false);
+  const [importRows,setImportRows] = useState([]);
   const [editingEmp,setEditingEmp]   = useState(null); // emp id being edited inline
   const [projSheet,setProjSheet] = useState(null);
   const [logSheet,setLogSheet]   = useState(null);

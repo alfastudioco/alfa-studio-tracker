@@ -476,6 +476,7 @@ function App(){
   const [logProjFilter,setLogProjFilter] = useState("all"); // "all" or proj.id
   const [summaryOpen,setSummaryOpen] = useState(true);
   const [importSheet,setImportSheet] = useState(false);
+  const [showArchived,setShowArchived] = useState(false);
   const [importRows,setImportRows] = useState([]);
   const [editingEmp,setEditingEmp]   = useState(null); // emp id being edited inline
   const [projSheet,setProjSheet] = useState(null);
@@ -494,6 +495,8 @@ function App(){
   const active  = entries.filter(e=>!e.end);
   const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);
   const activeProjs = projs.filter(p=>p.status!=="Completed");
+  const activeEmps = emps.filter(e=>!e.archived);
+  const archivedEmps = emps.filter(e=>e.archived);
 
   function activeFor(eid,pid){return entries.find(e=>e.empId===eid&&e.projId===pid&&!e.end);}
   function projMs(pid){return done.filter(e=>e.projId===pid).reduce((s,e)=>s+(e.end-e.start),0);}
@@ -595,7 +598,7 @@ function App(){
       // Employee cards — 2 columns, always visible
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}},
 
-        emps.map(emp=>{
+        activeEmps.map(emp=>{
           const isClockedIn=active.some(e=>e.empId===emp.id);
           return h("div",{key:emp.id,style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22"}},
             // Name header
@@ -804,7 +807,10 @@ function App(){
         // CREW TAB
         adminTab==="crew"&&h("div",null,
           h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
-            h("span",{style:{fontSize:13,color:T.sub}},emps.length+" crew member"+(emps.length!==1?"s":"")),
+            h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+              h("span",{style:{fontSize:13,color:T.sub}},activeEmps.length+" active"+(archivedEmps.length>0?" · "+archivedEmps.length+" archived":"")),
+              archivedEmps.length>0&&h("button",{onClick:()=>setShowArchived(p=>!p),style:{fontSize:11,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",cursor:"pointer"}},showArchived?"Hide Archived":"Show Archived")
+            ),
             h(Btn,{label:"+ Employee",size:"sm",onClick:()=>{setEf({name:"",role:ROLES[0],rate:""});setEditingEmp("new");}})
           ),
 
@@ -820,8 +826,8 @@ function App(){
             )
           ),
 
-          emps.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew yet."),
-          emps.map(emp=>{
+          activeEmps.length===0&&!showArchived&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew yet."),
+          (showArchived?emps:activeEmps).map(emp=>{
             const myProjs=projs.filter(p=>p.assignedTo.includes(emp.id));
             const hrs=empMs(emp.id);
             const isActive=active.some(e=>e.empId===emp.id);
@@ -838,11 +844,16 @@ function App(){
                   h("div",{style:{width:9,height:9,borderRadius:"50%",background:emp.color,flexShrink:0}}),
                   h("div",{style:{flex:1,minWidth:0}},
                     h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
-                      h("span",{style:{fontSize:15,fontWeight:700}},emp.name),
-                      isActive&&badge(T.green,"● On Clock")
+                      h("span",{style:{fontSize:15,fontWeight:700,color:emp.archived?T.dim:T.text}},emp.name),
+                      emp.archived&&h("span",{style:{fontSize:10,color:T.dim,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px"}},"Archived"),
+                      !emp.archived&&isActive&&badge(T.green,"● On Clock")
                     ),
                     h("div",{style:{fontSize:12,color:T.sub}},emp.role+(emp.rate?" · $"+emp.rate+"/h":"")+(hrs>0?" · ":""),hrs>0&&h("span",{style:{color:T.amber,fontWeight:600}},fmtHrs(hrs)+" total"))
                   ),
+                  // Archive/Restore button always visible in header
+                  emp.archived
+                    ? h("button",{onClick:e=>{e.stopPropagation();unarchiveEmp(emp.id);},style:{flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px",background:"#F0FDF4",color:T.green,border:"1px solid #BBF7D0"}},"Restore")
+                    : h("button",{onClick:e=>{e.stopPropagation();archiveEmp(emp.id);setExpandCrew(null);},style:{flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px",background:"#FFFBEB",color:T.amber,border:"1px solid #FDE68A"}},"Archive"),
                   h("span",{style:{color:T.dim,fontSize:12}},isExp?"▲":"▼")
                 )
               ),

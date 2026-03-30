@@ -760,6 +760,7 @@ function App(){
               ),
               h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
                 h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+                h("button",{onClick:()=>{setImportRows([{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]);setImportSheet(true);},style:{background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"44",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}},"↑ Import"),
                 h("button",{onClick:exportCSV,style:{background:T.green+"15",color:T.green,border:"1px solid "+T.green+"44",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}},"↓ CSV")
               )
             ),
@@ -863,6 +864,72 @@ function App(){
       h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
         h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setLogSheet(null)}),
         h(Btn,{label:"Save Entry",onClick:saveLog})
+      )
+    ),
+
+    importSheet&&h(Sheet,{title:"Batch Import",onClose:()=>setImportSheet(false)},
+      h("div",{style:{fontSize:12,color:T.sub,marginBottom:14,lineHeight:1.6}},"Add one row per day worked. Each row will be saved as a separate log entry."),
+
+      // Rows
+      importRows.map((row,i)=>
+        h("div",{key:row.id,style:{background:T.faint,border:"1px solid "+T.border,borderRadius:10,padding:"12px",marginBottom:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+            h("span",{style:{fontSize:11,fontWeight:700,color:T.sub}},"ENTRY "+(i+1)),
+            importRows.length>1&&h("button",{onClick:()=>setImportRows(p=>p.filter(r=>r.id!==row.id)),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,lineHeight:1}},"×")
+          ),
+          // Employee
+          h("div",{style:{marginBottom:8}},
+            h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Employee"),
+            h("select",{value:row.empId,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,empId:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:row.empId?T.text:T.dim,padding:"8px 10px",fontSize:13,outline:"none",appearance:"none"}},
+              h("option",{value:""},"Select employee…"),
+              emps.map(e=>h("option",{key:e.id,value:e.id},e.name))
+            )
+          ),
+          // Project
+          h("div",{style:{marginBottom:8}},
+            h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Project"),
+            h("select",{value:row.projId,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,projId:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:row.projId?T.text:T.dim,padding:"8px 10px",fontSize:13,outline:"none",appearance:"none"}},
+              h("option",{value:""},"Select project…"),
+              projs.map(p=>h("option",{key:p.id,value:p.id},p.name))
+            )
+          ),
+          // Date + Hours on same row
+          h("div",{style:{display:"flex",gap:8}},
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Date"),
+              h("input",{type:"date",value:row.date,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,date:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}})
+            ),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},"Hours"),
+              h("input",{type:"number",min:0,step:0.5,placeholder:"e.g. 8",value:row.hours,onChange:e=>setImportRows(p=>p.map(r=>r.id===row.id?{...r,hours:e.target.value}:r)),style:{width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}})
+            )
+          )
+        )
+      ),
+
+      // Add another row button
+      h("button",{onClick:()=>setImportRows(p=>[...p,{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]),style:{width:"100%",background:"transparent",border:"2px dashed "+T.border,borderRadius:10,padding:"10px",fontSize:13,color:T.sub,cursor:"pointer",marginBottom:16}},"+ Add Another Row"),
+
+      // Confirm
+      h("div",{style:{background:T.faint,borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.sub}},
+        importRows.filter(r=>r.empId&&r.projId&&r.hours).length+" of "+importRows.length+" rows ready to import"
+      ),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setImportSheet(false)}),
+        h("button",{
+          onClick:()=>{
+            const valid=importRows.filter(r=>r.empId&&r.projId&&r.hours&&+r.hours>0);
+            if(!valid.length)return;
+            const newEntries=valid.map(r=>{
+              const ms=+r.hours*3600000;
+              const base=new Date(r.date+"T07:00:00").getTime();
+              return {id:Date.now()+Math.random(),empId:+r.empId,projId:+r.projId,start:base,end:base+ms};
+            });
+            setEntries(p=>[...p,...newEntries]);
+            setImportSheet(false);
+          },
+          style:{background:T.text,color:"#FFF",border:"none",borderRadius:8,padding:"8px 20px",fontSize:13,fontWeight:700,cursor:"pointer"}
+        },"✓ Import "+importRows.filter(r=>r.empId&&r.projId&&r.hours).length+" Entries")
       )
     ),
 

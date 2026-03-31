@@ -444,6 +444,250 @@ function ImportSheet({emps, projs, onClose, onSave}) {
   );
 }
 
+
+// ── CogsSheet ──────────────────────────────────────────────
+function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChange, onAddVendor}) {
+  const items = cogs[projId] || [];
+  const today = new Date().toISOString().slice(0,10);
+  const blank = {category:"Materials", desc:"", amount:"", vendor:"", date:today};
+  const [form, setForm] = React.useState(blank);
+  const [editId, setEditId] = React.useState(null);
+  const [quickVendor, setQuickVendor] = React.useState("");
+  const [showQuickVendor, setShowQuickVendor] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
+  const [confirmCogs, setConfirmCogs] = React.useState(null); // item to delete
+  const [scanPreview, setScanPreview] = React.useState(null); // base64 image
+  const [scanError, setScanError] = React.useState("");
+
+  async function handleInvoiceUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanning(true); setScanError(""); setScanPreview(null);
+    try {
+      // Read file as base64
+      const base64 = await new Promise((res,rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(",")[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const mediaType = file.type || "image/jpeg";
+      setScanPreview("data:"+mediaType+";base64,"+base64);
+
+      // Call Claude API to extract invoice data
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 500,
+          messages: [{
+            role: "user",
+            content: [
+              {type:"image", source:{type:"base64", media_type:mediaType, data:base64}},
+              {type:"text", text:"Extract from this vendor invoice and return ONLY valid JSON with keys: vendor, amount (number), date (YYYY-MM-DD), description (max 60 chars). Use null for missing fields."},
+            ]
+          }]
+        })
+      });
+      const data = await response.json();
+      const text = data.content && data.content[0] && data.content[0].text;
+      if (!text) throw new Error("No response from AI");
+      const parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
+
+      // Pre-fill form with extracted data
+      setForm(f => ({
+        ...f,
+        vendor:   parsed.vendor   || f.vendor,
+        amount:   parsed.amount   ? String(parsed.amount) : f.amount,
+        date:     parsed.date     || f.date,
+        desc:     parsed.description || f.desc,
+      }));
+
+      // Auto-add vendor if new
+      if (parsed.vendor && !vendors.find(v=>v.name.toLowerCase()===parsed.vendor.toLowerCase())) {
+        onAddVendor && onAddVendor(parsed.vendor);
+      }
+    } catch(err) {
+      setScanError("Could not read invoice. Please fill in manually.");
+      console.error("Invoice scan error:", err);
+    }
+    setScanning(false);
+  }
+
+  const total = items.reduce((s,i)=>s+(+i.amount||0),0);
+  const budget = proj.budget || 0;
+  const pct = budget>0 ? Math.min(100, total/budget*100) : 0;
+  const barColor = total>budget ? "#EF4444" : pct>80 ? "#F59E0B" : "#34D399";
+
+  const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"9px 11px",fontSize:13,outline:"none",boxSizing:"border-box",width:"100%"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:600,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},txt);
+
+  function save() {
+    if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
+    const item = {id:editId||Date.now(), category:form.category, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date};
+    setCogs(p=>({...p,[projId]: editId
+      ? (p[projId]||[]).map(i=>i.id===editId?item:i)
+      : [...(p[projId]||[]), item]
+    }));
+    setForm(blank); setEditId(null);
+  }
+  function del(id){ setCogs(p=>({...p,[projId]:(p[projId]||[]).filter(i=>i.id!==id)})); setConfirmCogs(null); }
+  function edit(item){ setForm({category:item.category,desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date}); setEditId(item.id); }
+  function addQuickVendor(){
+    if(!quickVendor.trim()) return;
+    const name=quickVendor.trim();
+    onAddVendor&&onAddVendor(name);
+    setForm(f=>({...f,vendor:name}));
+    setQuickVendor(""); setShowQuickVendor(false);
+  }
+
+  // Category totals
+  const byCat={};
+  items.forEach(i=>{ byCat[i.category]=(byCat[i.category]||0)+(+i.amount||0); });
+
+  return h(Sheet,{title:"COGS — "+proj.name, onClose},
+
+    // ── Summary card ──
+    h("div",{style:{background:"#1C1917",borderRadius:12,padding:"14px 16px",marginBottom:14}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:budget>0?8:0}},
+        h("span",{style:{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.06em",textTransform:"uppercase"}},"Total COGS"),
+        h("div",{style:{display:"flex",alignItems:"baseline",gap:10}},
+          h("span",{style:{fontSize:20,fontWeight:800,color:"#60A5FA"}},"$"+total.toFixed(2)),
+          budget>0&&h("span",{style:{fontSize:11,color:"rgba(255,255,255,0.35)"}},"/ $"+budget.toFixed(2))
+        )
+      ),
+      budget>0&&h("div",null,
+        h("div",{style:{background:"rgba(255,255,255,0.1)",borderRadius:4,height:5,marginBottom:4}},
+          h("div",{style:{background:barColor,borderRadius:4,height:5,width:pct+"%",transition:"width .4s"}})
+        ),
+        h("div",{style:{display:"flex",justifyContent:"space-between"}},
+          h("span",{style:{fontSize:10,color:"rgba(255,255,255,0.35)"}},Math.round(pct)+"% used"),
+          h("span",{style:{fontSize:10,color:total>budget?"#FCA5A5":"rgba(255,255,255,0.35)"}},
+            total>budget?"$"+(total-budget).toFixed(2)+" over":"$"+(budget-total).toFixed(2)+" left"
+          )
+        )
+      ),
+      Object.keys(byCat).length>0&&h("div",{style:{marginTop:10,display:"flex",gap:10,flexWrap:"wrap"}},
+        Object.entries(byCat).map(([c,a])=>h("span",{key:c,style:{fontSize:11,color:"rgba(255,255,255,0.45)"}},"● "+c+": $"+a.toFixed(2)))
+      )
+    ),
+
+    // ── Budget input ──
+    h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:16,background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,padding:"8px 12px"}},
+      h("span",{style:{fontSize:12,color:"#78716C",whiteSpace:"nowrap"}},"Project budget"),
+      h("span",{style:{fontSize:13,color:"#78716C"}},"$"),
+      h("input",{type:"number",min:0,step:10,value:proj.budget||"",placeholder:"0.00",
+        onChange:e=>onBudgetChange(+e.target.value||0),
+        style:{flex:1,background:"transparent",border:"none",color:"#1C1917",fontSize:14,fontWeight:600,outline:"none"}
+      })
+    ),
+
+    // ── Invoice scanner ──
+    !editId&&h("div",{style:{marginBottom:12}},
+      h("label",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:scanning?"#F5F3F0":"#EFF6FF",border:"2px dashed "+(scanning?"#E5E2DC":"#93C5FD"),borderRadius:10,padding:"12px",cursor:scanning?"default":"pointer",textAlign:"center"}},
+        h("input",{type:"file",accept:"image/*,application/pdf",onChange:handleInvoiceUpload,style:{display:"none"}}),
+        scanning
+          ? h("span",{style:{fontSize:13,color:"#3B82F6",fontWeight:600}},"⟳ Reading invoice with AI…")
+          : h("div",null,
+              h("div",{style:{fontSize:20,marginBottom:4}},"📄"),
+              h("div",{style:{fontSize:13,fontWeight:600,color:"#3B82F6"}},"Upload vendor invoice"),
+              h("div",{style:{fontSize:11,color:"#93C5FD"}},"Photo or PDF · AI fills the form automatically")
+            )
+      ),
+      scanError&&h("div",{style:{fontSize:11,color:"#EF4444",marginTop:6,textAlign:"center"}},scanError),
+      scanPreview&&h("div",{style:{marginTop:8,borderRadius:8,overflow:"hidden",maxHeight:120,textAlign:"center"}},
+        h("img",{src:scanPreview,style:{maxHeight:120,maxWidth:"100%",borderRadius:8,objectFit:"contain"}})
+      )
+    ),
+
+    // ── Add / Edit form ──
+    h("div",{style:{background:editId?"#FFFBEB":"#F8F7F4",border:"1.5px solid "+(editId?"#FDE68A":"#E5E2DC"),borderRadius:10,padding:"12px",marginBottom:14}},
+      h("div",{style:{fontSize:11,fontWeight:700,color:editId?"#D97706":"#1C1917",marginBottom:10,letterSpacing:"0.04em"}},editId?"✏ EDIT ENTRY":"+ NEW ENTRY"),
+
+      // Row 1: Category + Amount
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        h("div",null,
+          lbl("Category"),
+          h("select",{value:form.category,onChange:e=>setForm(f=>({...f,category:e.target.value})),style:{...inp,appearance:"none"}},
+            ["Materials","Other"].map(c=>h("option",{key:c,value:c},c))
+          )
+        ),
+        h("div",null,
+          lbl("Amount ($)"),
+          h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:form.amount,onChange:e=>setForm(f=>({...f,amount:e.target.value})),style:inp})
+        )
+      ),
+
+      // Row 2: Description
+      h("div",{style:{marginBottom:8}},
+        lbl("Description"),
+        h("input",{type:"text",placeholder:"e.g. Oak lumber 50 board ft",value:form.desc,onChange:e=>setForm(f=>({...f,desc:e.target.value})),style:inp})
+      ),
+
+      // Row 3: Vendor + Date
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+        h("div",null,
+          lbl("Vendor"),
+          h("div",{style:{position:"relative"}},
+            h("select",{value:form.vendor,onChange:e=>{ if(e.target.value==="__new__"){setShowQuickVendor(true);}else{setForm(f=>({...f,vendor:e.target.value}));} },style:{...inp,appearance:"none"}},
+              h("option",{value:""},"No vendor"),
+              vendors.map(v=>h("option",{key:v.id,value:v.name},v.name)),
+              h("option",{value:"__new__"},"+ Add vendor…")
+            )
+          ),
+          // Quick-add vendor inline
+          showQuickVendor&&h("div",{style:{display:"flex",gap:6,marginTop:6}},
+            h("input",{type:"text",placeholder:"Vendor name",value:quickVendor,onChange:e=>setQuickVendor(e.target.value),style:{...inp,flex:1}}),
+            h("button",{onClick:addQuickVendor,style:{background:"#1C1917",color:"#FFF",border:"none",borderRadius:6,padding:"0 12px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
+            h("button",{onClick:()=>{setShowQuickVendor(false);setQuickVendor("");},style:{background:"none",border:"1px solid #E5E2DC",borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:"#78716C"}},"✕")
+          )
+        ),
+        h("div",null,
+          lbl("Date"),
+          h("input",{type:"date",value:form.date,onChange:e=>setForm(f=>({...f,date:e.target.value})),style:inp})
+        )
+      ),
+
+      // Save/cancel
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        editId&&h("button",{onClick:()=>{setEditId(null);setForm(blank);},style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+        h("button",{onClick:save,style:{borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700,padding:"7px 20px",background:"#1C1917",color:"#FFF",border:"none"}},editId?"✓ Update":"✓ Add")
+      )
+    ),
+
+    // ── Items list ──
+    items.length===0&&h("div",{style:{fontSize:12,color:"#A8A29E",textAlign:"center",padding:24}},"No costs added yet."),
+    [...items].sort((a,b)=>b.date.localeCompare(a.date)).map(item=>
+      h("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #F0EDE8"}},
+        h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{fontSize:13,fontWeight:600,color:"#1C1917",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},item.desc),
+          h("div",{style:{fontSize:11,color:"#78716C"}},
+            item.category+(item.vendor?" · "+item.vendor:"")+" · "+item.date
+          )
+        ),
+        h("span",{style:{fontSize:14,fontWeight:700,color:"#2563EB",flexShrink:0}},"$"+Number(item.amount).toFixed(2)),
+        h("button",{onClick:()=>edit(item),style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:13,padding:"0 4px",flexShrink:0}},"✏"),
+        h("button",{onClick:()=>setConfirmCogs(item),style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
+      )
+    ),
+
+    // Confirm delete dialog
+    confirmCogs&&h("div",{onClick:()=>setConfirmCogs(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Delete entry?"),
+        h("div",{style:{fontSize:13,color:"#78716C",marginBottom:4}},confirmCogs.desc),
+        h("div",{style:{fontSize:13,color:"#78716C",marginBottom:4}},confirmCogs.category+(confirmCogs.vendor?" · "+confirmCogs.vendor:"")),
+        h("div",{style:{fontSize:14,fontWeight:700,color:"#2563EB",marginBottom:20}},"$"+Number(confirmCogs.amount).toFixed(2)+" · "+confirmCogs.date),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmCogs(null),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>del(confirmCogs.id),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+        )
+      )
+    )
+  );
+}
+
 // ── Main App ───────────────────────────────────────────────
 function App(){
   const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
@@ -485,6 +729,9 @@ function App(){
   const [editingEmp,setEditingEmp]   = useState(null); // emp id being edited inline
   const [projSheet,setProjSheet] = useState(null);
   const [logSheet,setLogSheet]   = useState(null);
+  const [cogsSheet,setCogsSheet] = useState(null);
+  const [cogs,setCogs]           = useState(()=>load("alfa_cogs",{}));
+  const [vendors,setVendors]     = useState(()=>load("alfa_vendors",[]));
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [ef,setEf] = useState({name:"",role:ROLES[0],rate:""});
   const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
@@ -510,6 +757,8 @@ function App(){
     if(isFirstRender.current.entries){ isFirstRender.current.entries=false; return; }
     dbSave("entries", entries);
   },[entries]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{} },[cogs]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{} },[vendors]);
 
   const done    = entries.filter(e=>e.end);
   const active  = entries.filter(e=>!e.end);
@@ -523,6 +772,14 @@ function App(){
   function empMs(eid){return done.filter(e=>e.empId===eid).reduce((s,e)=>s+(e.end-e.start),0);}
 
   function fmtCost(dollars){ return "$"+dollars.toFixed(2); }
+  function projCogsTotals(projId){
+    const items=(cogs[projId]||[]);
+    const total=items.reduce((s,i)=>s+(+i.amount||0),0);
+    const byCategory={};
+    items.forEach(i=>{ byCategory[i.category]=(byCategory[i.category]||0)+(+i.amount||0); });
+    return {total,items,byCategory};
+  }
+  const COGS_CATS = ["Materials","Other"];
   function entryCost(e){ const emp=emps.find(x=>x.id===e.empId); return emp&&emp.rate?(e.end-e.start)/3600000*emp.rate:0; }
   function clockIn(eid,pid){
     if(activeFor(eid,pid))return;
@@ -666,7 +923,7 @@ function App(){
     mode==="admin"&&h("div",null,
       // Admin tabs
       h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px"}},
-        [["projects","Projects"],["crew","Crew"],["log","Log"]].map(([t,l])=>
+        [["projects","Projects"],["crew","Crew"],["log","Log"],["vendors","Vendors"]].map(([t,l])=>
           h("button",{key:t,onClick:()=>setAdminTab(t),style:{background:"none",border:"none",borderBottom:adminTab===t?"2px solid "+T.text:"2px solid transparent",color:adminTab===t?T.text:T.sub,padding:"12px 16px",cursor:"pointer",fontSize:13,fontWeight:adminTab===t?700:500,marginBottom:-1}},l)
         )
       ),
@@ -802,6 +1059,7 @@ function App(){
                           h("div",{style:secLabel},"Time Log "+(hrs>0?h("span",{style:{color:T.amber,fontWeight:700,fontSize:12,textTransform:"none",letterSpacing:0}},fmtHrs(hrs)+" total"):"")),
                           h("div",{style:{display:"flex",gap:6}},
                             h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+                            h("button",{onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);},style:{borderRadius:4,cursor:"pointer",fontFamily:"monospace",fontSize:11,fontWeight:600,padding:"4px 10px",background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"44"}},"💰 COGS"),
                             h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo]});setEditingProj(proj.id);}}),
                             h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>{setExpandProj(null);delProj(proj.id);}})
                           )
@@ -1053,6 +1311,21 @@ function App(){
         })()
       ),
 
+        // ── VENDORS TAB ──
+        adminTab==="vendors"&&h("div",null,
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+            h("span",{style:{fontSize:13,color:T.sub}},vendors.length+" vendor"+(vendors.length!==1?"s":"")),
+            h("button",{onClick:()=>setVendors(p=>[...p,{id:Date.now(),name:"New Vendor"}]),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ Add Vendor")
+          ),
+          vendors.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No vendors yet. Add one above."),
+          vendors.map(v=>
+            h("div",{key:v.id,style:{background:T.surf,border:"1px solid "+T.border,borderRadius:8,padding:"10px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:10}},
+              h("input",{value:v.name,onChange:e=>setVendors(p=>p.map(x=>x.id===v.id?{...x,name:e.target.value}:x)),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
+              h("button",{onClick:()=>setVendors(p=>p.filter(x=>x.id!==v.id)),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"0 4px",lineHeight:1}},"×")
+            )
+          )
+        ),
+
       // Lock button
       h("div",{style:{position:"fixed",bottom:24,right:20,zIndex:50}},
         h("button",{onClick:()=>setMode("worker"),style:{background:T.text,color:"#FFF",border:"none",borderRadius:12,padding:"10px 18px",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}},"🔒 Lock")
@@ -1091,6 +1364,16 @@ function App(){
       onSave:(newEntries)=>{setEntries(p=>[...p,...newEntries]);setImportSheet(false);}
     }),
 
+    cogsSheet&&(()=>{
+      const proj=projs.find(p=>p.id===cogsSheet);
+      if(!proj)return null;
+      return h(CogsSheet,{
+        projId:cogsSheet, proj, cogs, setCogs, vendors,
+        onBudgetChange:(val)=>setProjs(p=>p.map(x=>x.id===cogsSheet?{...x,budget:val}:x)),
+        onClose:()=>setCogsSheet(null),
+        onAddVendor:(name)=>setVendors(p=>[...p,{id:Date.now(),name}])
+      });
+    })(),
     confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,onConfirm:()=>deleteEntry(confirmEntry.id),onCancel:()=>setConfirmEntry(null)})
   );
 }

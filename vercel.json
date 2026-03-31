@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "functions": {
+    "api/scan-invoice.js": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "routes": [
+    { "src": "/api/scan-invoice", "dest": "/api/scan-invoice.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

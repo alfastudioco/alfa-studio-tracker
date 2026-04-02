@@ -1153,6 +1153,7 @@ function App(){
                             crew.map(e=>h("span",{key:e.id,style:{fontSize:11,color:e.color,fontWeight:600}},e.name))
                           )
                         ),
+                        h("button",{onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);},style:{flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px",background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"44"}},"💰"),
                         h("span",{style:{color:T.dim,fontSize:12,flexShrink:0,marginTop:2}},isExp?"▲":"▼")
                       )
                     ),

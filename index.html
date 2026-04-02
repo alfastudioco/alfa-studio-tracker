@@ -489,14 +489,30 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         mediaType = "image/jpeg";
         setScanPreview("data:image/jpeg;base64," + base64);
       } else {
-        base64 = await new Promise((res,rej) => {
-          const reader = new FileReader();
-          reader.onload = () => res(reader.result.split(",")[1]);
-          reader.onerror = rej;
-          reader.readAsDataURL(file);
+        // Compress image before sending — mobile photos can be 5-10MB
+        const compressed = await new Promise((res,rej) => {
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          img.onload = () => {
+            // Scale down to max 1200px on longest side
+            const maxSize = 1200;
+            let w = img.width, h = img.height;
+            if (w > maxSize || h > maxSize) {
+              if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+              else { w = Math.round(w * maxSize / h); h = maxSize; }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            URL.revokeObjectURL(url);
+            res(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+          };
+          img.onerror = rej;
+          img.src = url;
         });
-        mediaType = file.type || "image/jpeg";
-        setScanPreview("data:"+mediaType+";base64,"+base64);
+        base64 = compressed;
+        mediaType = "image/jpeg";
+        setScanPreview("data:image/jpeg;base64," + base64);
       }
 
       // Call Claude API to extract invoice data

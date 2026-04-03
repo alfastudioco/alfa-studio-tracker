@@ -451,7 +451,7 @@ function ImportSheet({emps, projs, onClose, onSave}) {
 function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChange, onAddVendor}) {
   const items = cogs[projId] || [];
   const today = new Date().toISOString().slice(0,10);
-  const blank = {category:"Materials", desc:"", amount:"", vendor:"", date:today};
+  const blank = {category:"Materials", desc:"", amount:"", vendor:"", date:today, invoiceNo:""};
   const [form, setForm] = React.useState(blank);
   const [editId, setEditId] = React.useState(null);
   const [quickVendor, setQuickVendor] = React.useState("");
@@ -532,7 +532,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
             role: "user",
             content: [
               {type:"image", source:{type:"base64", media_type:mediaType, data:base64}},
-              {type:"text", text:"Extract from this vendor invoice and return ONLY valid JSON with keys: vendor, amount (number), date (YYYY-MM-DD), description (max 60 chars). Use null for missing fields."}
+              {type:"text", text:"Extract from this vendor invoice and return ONLY valid JSON with keys: vendor, amount (number), date (YYYY-MM-DD), description (max 60 chars), invoiceNo (invoice/reference number as string). Use null for missing fields."}
             ]
           }]
         })
@@ -550,13 +550,25 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
       try { parsed = JSON.parse(text.replace(/```json|```/g,"").trim()); }
       catch(pe) { throw new Error("Could not parse AI response: "+text.slice(0,100)); }
 
+      // Check for duplicate invoice number
+      if (parsed.invoiceNo) {
+        const allItems = Object.values(cogs).flat();
+        const dup = allItems.find(i => i.invoiceNo && i.invoiceNo.toLowerCase() === parsed.invoiceNo.toLowerCase());
+        if (dup) {
+          setScanError("⚠ Invoice #"+parsed.invoiceNo+" has already been uploaded. Duplicate blocked.");
+          setScanning(false);
+          return;
+        }
+      }
+
       // Pre-fill form with extracted data
       setForm(f => ({
         ...f,
-        vendor:   parsed.vendor   || f.vendor,
-        amount:   parsed.amount   ? String(parsed.amount) : f.amount,
-        date:     parsed.date     || f.date,
-        desc:     parsed.description || f.desc,
+        vendor:    parsed.vendor      || f.vendor,
+        amount:    parsed.amount      ? String(parsed.amount) : f.amount,
+        date:      parsed.date        || f.date,
+        desc:      parsed.description || f.desc,
+        invoiceNo: parsed.invoiceNo   || f.invoiceNo,
       }));
 
       // Auto-add vendor if new
@@ -580,7 +592,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
   function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
-    const item = {id:editId||Date.now(), category:form.category, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date};
+    const item = {id:editId||Date.now(), category:form.category, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
     setCogs(p=>({...p,[projId]: editId
       ? (p[projId]||[]).map(i=>i.id===editId?item:i)
       : [...(p[projId]||[]), item]
@@ -689,6 +701,12 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         h("input",{type:"text",placeholder:"e.g. Oak lumber 50 board ft",value:form.desc,onChange:e=>setForm(f=>({...f,desc:e.target.value})),style:inp})
       ),
 
+      // Invoice number field
+      h("div",{style:{marginBottom:8}},
+        lbl("Invoice #"),
+        h("input",{type:"text",placeholder:"e.g. INV-1042",value:form.invoiceNo,onChange:e=>setForm(f=>({...f,invoiceNo:e.target.value})),style:inp})
+      ),
+
       // Row 3: Vendor + Date
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
         h("div",null,
@@ -727,7 +745,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         h("div",{style:{flex:1,minWidth:0}},
           h("div",{style:{fontSize:13,fontWeight:600,color:"#1C1917",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},item.desc),
           h("div",{style:{fontSize:11,color:"#78716C"}},
-            item.category+(item.vendor?" · "+item.vendor:"")+" · "+item.date
+            item.category+(item.vendor?" · "+item.vendor:"")+(item.invoiceNo?" · #"+item.invoiceNo:"")+" · "+item.date
           )
         ),
         h("span",{style:{fontSize:14,fontWeight:700,color:"#2563EB",flexShrink:0}},"$"+Number(item.amount).toFixed(2)),
@@ -798,6 +816,372 @@ function ProjEmpLog({entries, emps, onDelete}) {
   );
 }
 
+
+
+//  -- ProjectDetails --
+function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, secLabel}) {
+  const details = projDetails[projId] || {};
+  const [tab, setTab] = React.useState("info");
+  const [newField, setNewField] = React.useState({name:"",value:""});
+  const [addingField, setAddingField] = React.useState(false);
+
+  function set(key, val) {
+    setProjDetails(p=>({...p,[projId]:{...p[projId],[key]:val}}));
+  }
+  function setCustom(idx, field, val) {
+    const customs = [...(details.customs||[])];
+    customs[idx] = {...customs[idx],[field]:val};
+    set("customs", customs);
+  }
+  function addCustom() {
+    if(!newField.name.trim()) return;
+    const customs = [...(details.customs||[]), {name:newField.name, value:newField.value}];
+    set("customs", customs);
+    setNewField({name:"",value:""});
+    setAddingField(false);
+  }
+  function removeCustom(idx) {
+    const customs=(details.customs||[]).filter((_,i)=>i!==idx);
+    set("customs",customs);
+  }
+
+  // File handling — store as base64 in state
+  async function handleFile(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 5*1024*1024) { alert("File too large — max 5MB"); return; }
+    const base64 = await new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=()=>res(r.result);
+      r.onerror=rej;
+      r.readAsDataURL(file);
+    });
+    const files=[...(details.files||[]),{id:Date.now(),name:file.name,type:file.type,data:base64,date:new Date().toISOString().slice(0,10)}];
+    set("files",files);
+    e.target.value="";
+  }
+  function removeFile(id) {
+    set("files",(details.files||[]).filter(f=>f.id!==id));
+  }
+
+  const inp = {width:"100%",background:faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",boxSizing:"border-box"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
+
+  const PRESET_FIELDS = [
+    {key:"material",    label:"Material / Wood Species"},
+    {key:"finish",      label:"Paint / Stain Color"},
+    {key:"hardware",    label:"Hardware Selections"},
+    {key:"doorProfile", label:"Cabinet Style / Door Profile"},
+  ];
+
+  return h("div",{style:{borderTop:"1px solid "+line}},
+    // Tab bar
+    h("div",{style:{display:"flex",borderBottom:"1px solid "+line}},
+      [["info","Client Selections"],["files","Files & Docs"]].map(([t,l])=>
+        h("button",{key:t,onClick:()=>setTab(t),style:{flex:1,padding:"10px",background:tab===t?T.surf:"transparent",border:"none",borderBottom:tab===t?"2px solid "+T.text:"2px solid transparent",fontSize:12,fontWeight:tab===t?700:400,color:tab===t?T.text:T.sub,cursor:"pointer"}},l)
+      )
+    ),
+
+    // INFO TAB
+    tab==="info"&&h("div",{style:{padding:"14px 16px"}},
+      h("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+        // Preset fields
+        PRESET_FIELDS.map(({key,label})=>
+          h("div",{key},
+            lbl(label),
+            h("input",{type:"text",value:details[key]||"",placeholder:"Enter "+label.toLowerCase()+"…",onChange:e=>set(key,e.target.value),style:inp})
+          )
+        ),
+        // Custom fields
+        (details.customs||[]).map((f,i)=>
+          h("div",{key:i,style:{display:"flex",gap:8,alignItems:"flex-end"}},
+            h("div",{style:{flex:1}},
+              h("input",{type:"text",value:f.name,placeholder:"Field name",onChange:e=>setCustom(i,"name",e.target.value),style:{...inp,marginBottom:4,fontSize:11,color:T.sub}}),
+              h("input",{type:"text",value:f.value,placeholder:"Value…",onChange:e=>setCustom(i,"value",e.target.value),style:inp})
+            ),
+            h("button",{onClick:()=>removeCustom(i),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"4px",marginBottom:2,flexShrink:0}},"×")
+          )
+        ),
+        // Add custom field
+        addingField
+          ? h("div",{style:{background:faint,borderRadius:8,padding:10}},
+              lbl("New Custom Field"),
+              h("input",{type:"text",value:newField.name,placeholder:"Field name (e.g. Handle Finish)",onChange:e=>setNewField(f=>({...f,name:e.target.value})),style:{...inp,marginBottom:6}}),
+              h("input",{type:"text",value:newField.value,placeholder:"Value…",onChange:e=>setNewField(f=>({...f,value:e.target.value})),style:{...inp,marginBottom:8}}),
+              h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
+                h("button",{onClick:()=>setAddingField(false),style:{borderRadius:6,cursor:"pointer",fontSize:12,padding:"6px 12px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+                h("button",{onClick:addCustom,style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ Add")
+              )
+            )
+          : h("button",{onClick:()=>setAddingField(true),style:{width:"100%",background:"transparent",border:"2px dashed "+T.border,borderRadius:8,padding:"8px",fontSize:12,color:T.sub,cursor:"pointer"}},"+ Add Custom Field")
+      )
+    ),
+
+    // FILES TAB
+    tab==="files"&&h("div",{style:{padding:"14px 16px"}},
+      // Upload buttons
+      h("div",{style:{display:"flex",gap:8,marginBottom:14}},
+        h("label",{style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:"10px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
+          h("input",{type:"file",accept:"image/*",capture:"environment",onChange:handleFile,style:{display:"none"}}),
+          "📷 Photo"
+        ),
+        h("label",{style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:"10px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
+          h("input",{type:"file",accept:"image/*,application/pdf,.doc,.docx",onChange:handleFile,style:{display:"none"}}),
+          "📄 File / PDF"
+        )
+      ),
+      // File list
+      (details.files||[]).length===0&&h("div",{style:{fontSize:12,color:T.dim,textAlign:"center",padding:24}},"No files yet. Upload photos, drawings, or signed quotes."),
+      (details.files||[]).map(f=>
+        h("div",{key:f.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid "+line}},
+          // Thumbnail or icon
+          f.type.startsWith("image")
+            ? h("img",{src:f.data,style:{width:48,height:48,objectFit:"cover",borderRadius:6,flexShrink:0}})
+            : h("div",{style:{width:48,height:48,background:faint,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}},"📄"),
+          h("div",{style:{flex:1,minWidth:0}},
+            h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
+            h("div",{style:{fontSize:11,color:T.dim}},f.date)
+          ),
+          // View button for images
+          f.type.startsWith("image")&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"View"),
+          f.type==="application/pdf"&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"Open"),
+          h("button",{onClick:()=>removeFile(f.id),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
+        )
+      )
+    )
+  );
+}
+
+
+
+
+
+//  -- ScopePanel --
+function ScopePanel({projId, projRooms, setProjRooms, fmtCost, T, line, faint}) {
+  const rooms = projRooms[projId]||[];
+  const total = rooms.reduce((s,r)=>s+(+r.price||0),0);
+  const nameRef = React.useRef(null);
+  const priceRef = React.useRef(null);
+  const [confirmRoom, setConfirmRoom] = React.useState(null);
+
+  function update(id,field,val){
+    setProjRooms(p=>({...p,[projId]:(p[projId]||[]).map(r=>r.id===id?{...r,[field]:val}:r)}));
+  }
+  function remove(id){
+    setProjRooms(p=>({...p,[projId]:(p[projId]||[]).filter(r=>r.id!==id)}));
+    setConfirmRoom(null);
+  }
+  function addRow(){
+    const name=nameRef.current?.value?.trim();
+    if(!name){nameRef.current?.focus();return;}
+    const price=priceRef.current?.value||"";
+    setProjRooms(p=>({...p,[projId]:[...(p[projId]||[]),{id:Date.now(),name,price}]}));
+    nameRef.current.value="";
+    priceRef.current.value="";
+    nameRef.current.focus();
+  }
+
+  const inp = (extra={})=>({...{background:"transparent",border:"none",color:T.text,outline:"none",padding:0},...extra});
+
+  return h("div",{style:{padding:"0 16px 12px"}},
+
+    // Column headers
+    h("div",{style:{display:"flex",gap:8,padding:"8px 0 4px",borderBottom:"2px solid "+line}},
+      h("span",{style:{flex:1,fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em"}},"Room / Area"),
+      h("span",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em",minWidth:110,textAlign:"right"}},"Sale Price"),
+      h("span",{style:{width:20}})
+    ),
+
+    // Room rows
+    rooms.map(room=>
+      h("div",{key:room.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+line}},
+        h("input",{value:room.name,onChange:e=>update(room.id,"name",e.target.value),
+          style:{...inp(),flex:1,fontSize:13,fontWeight:600}}),
+        h("div",{style:{display:"flex",alignItems:"center",background:faint,border:"1px solid "+T.border,borderRadius:6,padding:"4px 8px",minWidth:110}},
+          h("span",{style:{fontSize:11,color:T.sub}},"$"),
+          h("input",{type:"number",min:0,step:0.01,value:room.price||"",placeholder:"0.00",
+            onChange:e=>update(room.id,"price",e.target.value),
+            style:{...inp(),width:80,fontSize:13,fontWeight:700,textAlign:"right"}})
+        ),
+        h("button",{onClick:()=>setConfirmRoom(room),
+          style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1,width:20}},"×")
+      )
+    ),
+
+    // Add row
+    h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+line}},
+      h("input",{ref:nameRef,type:"text",placeholder:"Add room (e.g. Kitchen, Master Bath)…",
+        onKeyDown:e=>e.key==="Enter"&&priceRef.current?.focus(),
+        style:{...inp(),flex:1,fontSize:13,color:T.sub}}),
+      h("div",{style:{display:"flex",alignItems:"center",background:faint,border:"1px solid "+T.border,borderRadius:6,padding:"4px 8px",minWidth:110}},
+        h("span",{style:{fontSize:11,color:T.sub}},"$"),
+        h("input",{ref:priceRef,type:"number",min:0,step:0.01,placeholder:"0.00",
+          onKeyDown:e=>e.key==="Enter"&&addRow(),
+          style:{...inp(),width:80,fontSize:13,fontWeight:700,textAlign:"right",color:T.sub}})
+      ),
+      h("button",{onClick:addRow,
+        style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"4px 8px",fontSize:12,fontWeight:700,cursor:"pointer",width:20,display:"flex",alignItems:"center",justifyContent:"center"}},"+")
+    ),
+
+    // Total
+    total>0&&h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 2px"}},
+      h("span",{style:{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em"}},"Contract Total"),
+      h("span",{style:{fontSize:16,fontWeight:800,color:T.green}},fmtCost(total))
+    ),
+
+    // Confirm delete dialog
+    confirmRoom&&h("div",{onClick:()=>setConfirmRoom(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:300,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:15,fontWeight:700,color:"#1C1917",marginBottom:4}},"Remove room?"),
+        h("div",{style:{fontSize:14,color:"#78716C",marginBottom:4}},confirmRoom.name),
+        confirmRoom.price&&h("div",{style:{fontSize:13,fontWeight:700,color:"#2563EB",marginBottom:16}},fmtCost(+confirmRoom.price)),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmRoom(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>remove(confirmRoom.id),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Remove")
+        )
+      )
+    )
+  );
+}
+
+//  -- ProjectExpanded --
+function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projRooms,setProjRooms,
+  activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
+  T,secLabel,card,entryCost,projCogsTotals,
+  setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
+  STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown}) {
+
+  const [openSection,setOpenSection] = React.useState(null);
+  const projDone = done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
+  const hrs = projDone.reduce((s,e)=>s+(e.end-e.start),0);
+  const isLive = active.some(e=>e.projId===proj.id);
+  const ct = projCogsTotals(proj.id);
+  const details = projDetails[proj.id]||{};
+  const hasDetails = details.material||details.finish||details.hardware||details.doorProfile||(details.customs||[]).length>0;
+  const hasFiles = (details.files||[]).length>0;
+  const roomList = projRooms[proj.id]||[];
+  const roomTotal = roomList.reduce((s,r)=>s+(+r.price||0),0);
+
+
+  function Section({id, label, badge, children}) {
+    const isOpen = openSection===id;
+    return h("div",{style:{borderTop:"1px solid "+T.line}},
+      h("div",{onClick:()=>setOpenSection(isOpen?null:id),
+        style:{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",cursor:"pointer",background:isOpen?T.faint:"transparent"}},
+        h("span",{style:{flex:1,fontSize:12,fontWeight:600,color:T.text}},label),
+        badge&&h("span",{style:{fontSize:11,fontWeight:600,color:T.sub}},badge),
+        h("span",{style:{fontSize:11,color:T.dim}},isOpen?"▲":"▼")
+      ),
+      isOpen&&h("div",{style:{borderTop:"1px solid "+T.line}},children)
+    );
+  }
+
+  return h("div",{style:{borderTop:"1px solid "+T.line}},
+
+    // ── Quick actions row ──
+    h("div",{style:{padding:"10px 16px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid "+T.line}},
+      h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+      h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo],salePrice:proj.salePrice||""});setEditingProj(proj.id);}}),
+      h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmProj(proj)})
+    ),
+
+    // ── Clock In/Out — only if not completed ──
+    proj.status!=="Completed"&&h(Section,{id:"clock",label:"Clock In / Out",
+      badge:isLive?"● Live":null},
+      h("div",{style:{padding:"10px 16px"}},
+        emps.map(emp=>{
+          const act=activeFor(emp.id,proj.id);
+          return h("div",{key:emp.id,style:{display:"flex",alignItems:"center",gap:10,marginBottom:6}},
+            h("div",{style:{width:7,height:7,borderRadius:"50%",background:emp.color,flexShrink:0}}),
+            h("span",{style:{flex:1,fontSize:13}},emp.name),
+            act&&h("span",{style:{fontSize:11,color:T.dim}},"since "+fmtTime(act.start)),
+            act&&h("span",{style:{fontSize:12,fontWeight:700,color:T.amber,minWidth:36,textAlign:"right"}},h(LiveTimer,{start:act.start})),
+            act
+              ? h(Btn,{label:"Out",size:"sm",variant:"ghost",onClick:()=>clockOut(act.id)})
+              : h(Btn,{label:"In",size:"sm",variant:"green",onClick:()=>clockIn(emp.id,proj.id)})
+          );
+        })
+      )
+    ),
+
+    // ── Time Log ──
+    h(Section,{id:"timelog",label:"Time Log",badge:hrs>0?fmtHrs(hrs):projDone.length===0?"No entries":null},
+      h("div",{style:{padding:"10px 16px"}},
+        projDone.length===0
+          ? h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No hours logged yet.")
+          : h(ProjEmpLog,{entries:projDone,emps,onDelete:setConfirmEntry})
+      )
+    ),
+
+    // ── Materials / COGS ──
+    h(Section,{id:"cogs",label:"Materials & Costs",badge:ct.total>0?fmtCost(ct.total):null},
+      h(VendorBreakdown,{projId:proj.id,cogs,fmtCost,T,secLabel,line:T.line,faint:T.faint})
+    ),
+
+    // ── Scope / Rooms ──
+    h(Section,{id:"scope",label:"Scope & Pricing",
+      badge:roomList.length>0?(fmtCost(roomTotal)+" · "+roomList.length+" room"+(roomList.length!==1?"s":"")):null},
+      h(ScopePanel,{projId:proj.id,projRooms,setProjRooms,fmtCost,T,line:T.line,faint:T.faint})
+    ),
+
+    // ── Client Selections & Files ──
+    h(Section,{id:"details",label:"Project Details & Files",
+      badge:hasDetails||hasFiles?([(hasDetails?"Selections":""),hasFiles?(details.files.length+" file"+(details.files.length!==1?"s":"")):""].filter(Boolean).join(" · ")):null},
+      h(ProjectDetails,{projId:proj.id,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel})
+    )
+  );
+}
+
+//  -- VendorBreakdown --
+function VendorBreakdown({projId,cogs,fmtCost,T,secLabel,line,faint}) {
+  const [openVendor,setOpenVendor] = React.useState(null);
+  const projItems = cogs[projId]||cogs[String(projId)]||cogs[+projId]||[];
+  if(!projItems.length) return null;
+
+  // Group by vendor name (trim + fallback)
+  const byVendor={};
+  projItems.forEach(i=>{
+    const k=(i.vendor&&i.vendor.trim())?i.vendor.trim():"No Vendor";
+    if(!byVendor[k]) byVendor[k]=[];
+    byVendor[k].push(i);
+  });
+  const sorted=Object.entries(byVendor).sort((a,b)=>
+    b[1].reduce((s,i)=>s+(+i.amount||0),0) - a[1].reduce((s,i)=>s+(+i.amount||0),0)
+  );
+  const total=sorted.reduce((s,[,items])=>s+items.reduce((ss,i)=>ss+(+i.amount||0),0),0);
+
+  return h("div",{style:{padding:"14px 16px",borderTop:"1px solid "+line}},
+    h("div",{style:secLabel},"Cost by Vendor"),
+    sorted.map(([name,items])=>{
+      const amt=items.reduce((s,i)=>s+(+i.amount||0),0);
+      const isOpen=openVendor===name;
+      return h("div",{key:name,style:{marginBottom:6,background:faint,borderRadius:8,overflow:"hidden"}},
+        // Vendor row — tap to expand
+        h("div",{onClick:()=>setOpenVendor(isOpen?null:name),style:{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",cursor:"pointer"}},
+          h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:T.text}},name),
+          h("span",{style:{fontSize:13,fontWeight:700,color:T.blue}},fmtCost(amt)),
+          h("span",{style:{fontSize:11,color:T.dim,marginLeft:4}},isOpen?"▲":"▼")
+        ),
+        // Line items
+        isOpen&&h("div",{style:{borderTop:"1px solid "+line}},
+          items.sort((a,b)=>b.date.localeCompare(a.date)).map(i=>
+            h("div",{key:i.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderBottom:"1px solid "+line}},
+              h("span",{style:{flex:1,fontSize:12,color:T.sub}},i.desc||i.category),
+              i.invoiceNo&&h("span",{style:{fontSize:11,color:T.dim}},"#"+i.invoiceNo),
+              h("span",{style:{fontSize:11,color:T.dim,marginLeft:4}},i.date),
+              h("span",{style:{fontSize:12,fontWeight:600,color:T.blue,marginLeft:8}},fmtCost(+i.amount||0))
+            )
+          )
+        )
+      );
+    }),
+    total>0&&h("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:4,borderTop:"1px solid "+line}},
+      h("span",{style:{fontSize:11,color:T.sub}},"Total materials"),
+      h("span",{style:{fontSize:13,fontWeight:700,color:T.blue}},fmtCost(total))
+    )
+  );
+}
+
 //  -- Main App -----------------------------------------------
 function App(){
   const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
@@ -844,8 +1228,15 @@ function App(){
   const [vendors,setVendors]     = useState(()=>load("alfa_vendors",[]));
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [confirmProj,setConfirmProj]   = useState(null);
+  const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
+  const [projRooms,setProjRooms]       = useState(()=>load("alfa_projrooms",{}));
+  const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
   const [confirmEmp,setConfirmEmp]     = useState(null);
   const [confirmVendor,setConfirmVendor] = useState(null);
+  const [vendorRange,setVendorRange] = useState("all"); // "all"|"month"|"year"|"custom"
+  const [vendorOffset,setVendorOffset] = useState(0);
+  const [vendorCustomStart,setVendorCustomStart] = useState("");
+  const [vendorCustomEnd,setVendorCustomEnd] = useState("");
   const [ef,setEf] = useState({name:"",role:ROLES[0],rate:""});
   const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
@@ -872,6 +1263,8 @@ function App(){
   },[entries]);
   useEffect(()=>{ try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{} },[cogs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{} },[vendors]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_projrooms",JSON.stringify(projRooms));}catch{} },[projRooms]);
 
   const done    = entries.filter(e=>e.end);
   const active  = entries.filter(e=>!e.end);
@@ -1059,7 +1452,7 @@ function App(){
             h("div",{style:{display:"flex",gap:8}},
               h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
               h("button",{onClick:()=>{setImportRows([{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]);setImportSheet(true);},style:{background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"44",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}},"↑ Batch Import"),
-              h(Btn,{label:"+ Project",size:"sm",onClick:()=>{setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});setEditingProj("new");}})
+              h(Btn,{label:"+ Project",size:"sm",onClick:()=>{setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[],salePrice:""});setEditingProj("new");}})
             )
           ),
           // Status filter pills
@@ -1086,6 +1479,13 @@ function App(){
             h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
             h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
             h("div",{style:{marginBottom:14}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Sale Price ($)"),
+              h("div",{style:{display:"flex",alignItems:"center",gap:6,background:T.faint,border:"1px solid "+T.border,borderRadius:8,padding:"2px 10px"}},
+                h("span",{style:{fontSize:13,color:T.sub}},"$"),
+                h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:pf.salePrice||"",onChange:e=>setPf({...pf,salePrice:e.target.value}),style:{flex:1,background:"transparent",border:"none",color:T.text,padding:"8px 0",fontSize:14,fontWeight:600,outline:"none"}})
+              )
+            ),
+            h("div",{style:{marginBottom:14}},
               h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:8}},"Assign Crew"),
               h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
                 emps.map(e=>{ const sel=pf.assignedTo.includes(e.id);
@@ -1107,7 +1507,7 @@ function App(){
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-            return h("div",{key:proj.id,style:{...card,marginBottom:8}},
+            return h("div",{key:proj.id,style:{...card,marginBottom:12,borderLeft:"3px solid "+(SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
 
               // Inline edit form
               isEditing
@@ -1117,6 +1517,13 @@ function App(){
                     h(Field,{label:"Client",value:pf.client,onChange:v=>setPf({...pf,client:v})}),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
                     h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
+                    h("div",{style:{marginBottom:14}},
+                      h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Sale Price ($)"),
+                      h("div",{style:{display:"flex",alignItems:"center",gap:6,background:T.faint,border:"1px solid "+T.border,borderRadius:8,padding:"2px 10px"}},
+                        h("span",{style:{fontSize:13,color:T.sub}},"$"),
+                        h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:pf.salePrice||"",onChange:e=>setPf({...pf,salePrice:e.target.value}),style:{flex:1,background:"transparent",border:"none",color:T.text,padding:"8px 0",fontSize:14,fontWeight:600,outline:"none"}})
+                      )
+                    ),
                     h("div",{style:{marginBottom:14}},
                       h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:8}},"Assign Crew"),
                       h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
@@ -1145,18 +1552,29 @@ function App(){
                             const ct=projCogsTotals(proj.id);
                             const laborCost=done.filter(e=>e.projId===proj.id).reduce((s,e)=>s+entryCost(e),0);
                             const totalCost=laborCost+ct.total;
-                            if(!hrs&&!laborCost&&!ct.total) return null;
+                            const roomList=projRooms[proj.id]||[];
+                            const salePrice=roomList.length>0?roomList.reduce((s,r)=>s+(+r.price||0),0):(+proj.salePrice||0);
+                            const profit=salePrice>0?salePrice-totalCost:null;
+                            if(!hrs&&!laborCost&&!ct.total&&!salePrice) return null;
                             const col=(label,value,color,onClick)=>h("div",{onClick,style:{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:1,cursor:onClick?"pointer":"default"}},
                               h("span",{style:{fontSize:9,fontWeight:700,color:color,letterSpacing:"0.06em",textTransform:"uppercase",opacity:0.7}},label),
                               h("span",{style:{fontSize:14,fontWeight:700,color:color}},value)
                             );
-                            return h("div",{style:{display:"flex",gap:16,alignItems:"flex-end",marginBottom:6,paddingLeft:2}},
+                            return h("div",{style:{display:"flex",gap:16,alignItems:"flex-end",marginBottom:6,paddingLeft:2,flexWrap:"wrap"}},
                               hrs>0&&col("Hours",fmtHrs(hrs),T.amber),
                               laborCost>0&&col("Labor",fmtCost(laborCost),T.green),
                               ct.total>0&&col("Materials",fmtCost(ct.total),T.blue,e=>{e.stopPropagation();setCogsSheet(proj.id);}),
                               totalCost>0&&h("div",{style:{display:"flex",flexDirection:"column",gap:1,borderLeft:"2px solid "+T.border,paddingLeft:16,marginLeft:4}},
-                                h("span",{style:{fontSize:9,fontWeight:700,color:T.sub,letterSpacing:"0.06em",textTransform:"uppercase",opacity:0.7}},"Total"),
+                                h("span",{style:{fontSize:9,fontWeight:700,color:T.sub,letterSpacing:"0.06em",textTransform:"uppercase",opacity:0.7}},"Cost"),
                                 h("span",{style:{fontSize:14,fontWeight:800,color:T.text}},fmtCost(totalCost))
+                              ),
+                              salePrice>0&&h("div",{style:{display:"flex",flexDirection:"column",gap:1,borderLeft:"2px solid "+T.border,paddingLeft:16,marginLeft:4}},
+                                h("span",{style:{fontSize:9,fontWeight:700,color:T.sub,letterSpacing:"0.06em",textTransform:"uppercase",opacity:0.7}},"Sale"),
+                                h("span",{style:{fontSize:14,fontWeight:800,color:T.text}},fmtCost(salePrice))
+                              ),
+                              profit!==null&&h("div",{style:{display:"flex",flexDirection:"column",gap:1,borderLeft:"2px solid "+(profit>=0?T.green:T.red),paddingLeft:16,marginLeft:4}},
+                                h("span",{style:{fontSize:9,fontWeight:700,color:profit>=0?T.green:T.red,letterSpacing:"0.06em",textTransform:"uppercase",opacity:0.8}},profit>=0?"Profit":"Loss"),
+                                h("span",{style:{fontSize:14,fontWeight:800,color:profit>=0?T.green:T.red}},(profit>=0?"+":"")+fmtCost(profit))
                               ),
                               ct.total===0&&!laborCost&&h("button",{onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);},style:{fontSize:11,color:T.blue,background:T.blue+"10",border:"1px dashed "+T.blue+"44",borderRadius:6,padding:"2px 8px",cursor:"pointer",fontWeight:600}},"+ Add COGS")
                             );
@@ -1173,37 +1591,13 @@ function App(){
                         h("span",{style:{color:T.dim,fontSize:12,flexShrink:0,marginTop:2}},isExp?"▲":"▼")
                       )
                     ),
-                    isExp&&h("div",{style:{borderTop:"1px solid "+T.line}},
-                      proj.status!=="Completed"&&h("div",{style:{padding:"14px 16px",borderBottom:"1px solid "+T.line}},
-                        h("div",{style:secLabel},"Clock In / Out"),
-                        emps.map(emp=>{
-                          const act=activeFor(emp.id,proj.id);
-                          return h("div",{key:emp.id,style:{display:"flex",alignItems:"center",gap:10,marginBottom:8}},
-                            h("div",{style:{width:7,height:7,borderRadius:"50%",background:emp.color,flexShrink:0}}),
-                            h("span",{style:{flex:1,fontSize:13,fontWeight:500}},emp.name),
-                            act&&h("span",{style:{fontSize:11,color:T.dim}},"since "+fmtTime(act.start)),
-                            act&&h("span",{style:{fontSize:12,fontWeight:700,color:T.amber,minWidth:36,textAlign:"right"}},h(LiveTimer,{start:act.start})),
-                            act
-                              ? h(Btn,{label:"Out",size:"sm",variant:"ghost",onClick:()=>clockOut(act.id)})
-                              : h(Btn,{label:"In",size:"sm",variant:"green",onClick:()=>clockIn(emp.id,proj.id)})
-                          );
-                        })
-                      ),
-                      h("div",{style:{padding:"14px 16px"}},
-                        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
-                          h("div",{style:secLabel},"Time Log "+(hrs>0?h("span",{style:{color:T.amber,fontWeight:700,fontSize:12,textTransform:"none",letterSpacing:0}},fmtHrs(hrs)+" total"):"")),
-                          h("div",{style:{display:"flex",gap:6}},
-                            h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
-
-                            h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo]});setEditingProj(proj.id);}}),
-                            h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmProj(proj)})
-                          )
-                        ),
-                        projDone.length===0
-                          ? h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No hours logged yet.")
-                          : h(ProjEmpLog,{entries:projDone,emps,onDelete:setConfirmEntry})
-                      )
-                    )
+                    isExp&&h(ProjectExpanded,{
+                      proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projRooms,setProjRooms,
+                      activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
+                      T,secLabel,card,entryCost,projCogsTotals,
+                      setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
+                      STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown
+                    })
                   )
             );
           }),
@@ -1315,19 +1709,91 @@ function App(){
         ),
 
         //  -- VENDORS TAB --
-        adminTab==="vendors"&&h("div",null,
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
-            h("span",{style:{fontSize:13,color:T.sub}},vendors.length+" vendor"+(vendors.length!==1?"s":"")),
-            h("button",{onClick:()=>setVendors(p=>[...p,{id:Date.now(),name:"New Vendor"}]),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ Add Vendor")
-          ),
-          vendors.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No vendors yet. Add one above."),
-          vendors.map(v=>
-            h("div",{key:v.id,style:{background:T.surf,border:"1px solid "+T.border,borderRadius:8,padding:"10px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:10}},
-              h("input",{value:v.name,onChange:e=>setVendors(p=>p.map(x=>x.id===v.id?{...x,name:e.target.value}:x)),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
-              h("button",{onClick:()=>setConfirmVendor(v),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"0 4px",lineHeight:1}},"×")
-            )
-          )
-        )
+        adminTab==="vendors"&&(()=>{
+          // Date window
+          const now = new Date();
+          let winStart=null, winEnd=null, winLabel="";
+          if(vendorRange==="month"){
+            const d=new Date(now.getFullYear(),now.getMonth()+vendorOffset,1);
+            winStart=d.getTime();
+            const e2=new Date(d.getFullYear(),d.getMonth()+1,1); winEnd=e2.getTime();
+            winLabel=d.toLocaleDateString([],{month:"long",year:"numeric"});
+          } else if(vendorRange==="year"){
+            const yr=now.getFullYear()+vendorOffset;
+            winStart=new Date(yr,0,1).getTime();
+            winEnd=new Date(yr+1,0,1).getTime();
+            winLabel=String(yr);
+          } else if(vendorRange==="custom"&&vendorCustomStart){
+            winStart=new Date(vendorCustomStart).getTime();
+            winEnd=vendorCustomEnd?new Date(vendorCustomEnd+"T23:59:59").getTime():Date.now();
+            winLabel=vendorCustomStart+(vendorCustomEnd?" – "+vendorCustomEnd:"");
+          }
+
+          // Flatten all cogs items, filter by date window
+          const allItems=Object.values(cogs).flat();
+          const filtItems=winStart?allItems.filter(i=>{ const d=new Date(i.date).getTime(); return d>=winStart&&d<winEnd; }):allItems;
+
+          // Total spent per vendor
+          const vendorTotals={};
+          filtItems.forEach(i=>{ if(i.vendor){ vendorTotals[i.vendor]=(vendorTotals[i.vendor]||0)+(+i.amount||0); } });
+          const grandTotal=Object.values(vendorTotals).reduce((s,v)=>s+v,0);
+
+          return h("div",null,
+            // Header
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+              h("span",{style:{fontSize:13,color:T.sub}},vendors.length+" vendor"+(vendors.length!==1?"s":"")),
+              h("button",{onClick:()=>setVendors(p=>[...p,{id:Date.now(),name:"New Vendor"}]),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ Add Vendor")
+            ),
+
+            // Date filter
+            h("div",{style:{marginBottom:14}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+                h("div",{style:{display:"flex",background:T.faint,borderRadius:8,padding:2,gap:2}},
+                  [["all","All"],["month","Month"],["year","Year"],["custom","Custom"]].map(([v,l])=>
+                    h("button",{key:v,onClick:()=>{setVendorRange(v);setVendorOffset(0);},style:{padding:"5px 12px",background:vendorRange===v?T.surf:"transparent",color:vendorRange===v?T.text:T.sub,border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:vendorRange===v?700:400,boxShadow:vendorRange===v?"0 1px 3px rgba(0,0,0,0.08)":"none"}},l)
+                  )
+                ),
+                (vendorRange==="month"||vendorRange==="year")&&h("div",{style:{display:"flex",alignItems:"center",gap:6,background:T.surf,border:"1px solid "+T.border,borderRadius:8,padding:"4px 8px"}},
+                  h("button",{onClick:()=>setVendorOffset(o=>o-1),style:{background:"none",border:"none",fontSize:16,cursor:"pointer",color:T.sub,padding:"0 4px"}},"‹"),
+                  h("span",{style:{fontSize:12,fontWeight:600,color:T.text,minWidth:80,textAlign:"center"}},winLabel),
+                  h("button",{onClick:()=>setVendorOffset(o=>Math.min(o+1,0)),style:{background:"none",border:"none",fontSize:16,cursor:"pointer",color:vendorOffset===0?T.border:T.sub,padding:"0 4px"}},"›")
+                )
+              ),
+              vendorRange==="custom"&&h("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+                h("input",{type:"date",value:vendorCustomStart,onChange:e=>setVendorCustomStart(e.target.value),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none"}}),
+                h("span",{style:{fontSize:12,color:T.sub}},"to"),
+                h("input",{type:"date",value:vendorCustomEnd,onChange:e=>setVendorCustomEnd(e.target.value),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"6px 10px",fontSize:12,outline:"none"}})
+              )
+            ),
+
+            // Grand total banner
+            grandTotal>0&&h("div",{style:{background:T.text,borderRadius:10,padding:"12px 16px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              h("span",{style:{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.6)",letterSpacing:"0.06em",textTransform:"uppercase"}},"Total Spent"+(winLabel?" · "+winLabel:"")),
+              h("span",{style:{fontSize:18,fontWeight:800,color:"#60A5FA"}},fmtCost(grandTotal))
+            ),
+
+            // Vendor list
+            vendors.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No vendors yet. Add one above."),
+            vendors
+              .map(v=>({...v, spent: vendorTotals[v.name]||0}))
+              .sort((a,b)=>b.spent-a.spent)
+              .map(v=>
+                h("div",{key:v.id,style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",marginBottom:8}},
+                  h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                    h("input",{value:v.name,onChange:e=>setVendors(p=>p.map(x=>x.id===v.id?{...x,name:e.target.value}:x)),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
+                    v.spent>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.blue,flexShrink:0}},fmtCost(v.spent)),
+                    h("button",{onClick:()=>setConfirmVendor(v),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"0 4px",lineHeight:1}},"×")
+                  ),
+                  v.spent>0&&h("div",{style:{marginTop:8}},
+                    h("div",{style:{background:T.faint,borderRadius:4,height:5}},
+                      h("div",{style:{background:T.blue,borderRadius:4,height:5,width:Math.round(v.spent/grandTotal*100)+"%",transition:"width .4s"}})
+                    ),
+                    h("div",{style:{fontSize:10,color:T.dim,marginTop:3}},Math.round(v.spent/grandTotal*100)+"% of total · "+(filtItems.filter(i=>i.vendor===v.name).length)+" invoice"+(filtItems.filter(i=>i.vendor===v.name).length!==1?"s":""))
+                  )
+                )
+              )
+          );
+        })()
       ),
 
       // Lock button

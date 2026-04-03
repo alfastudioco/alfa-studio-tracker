@@ -447,11 +447,64 @@ function ImportSheet({emps, projs, onClose, onSave}) {
 }
 
 
+
+//  -- CogsVendorList --
+function CogsVendorList({items, onEdit, onDelete}) {
+  const [openVendor, setOpenVendor] = React.useState(null);
+
+  // Group by vendor
+  const groups = {};
+  [...items].sort((a,b)=>b.date.localeCompare(a.date)).forEach(i=>{
+    const key = (i.vendor&&i.vendor.trim()) ? i.vendor.trim() : "No Vendor";
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(i);
+  });
+  const sorted = Object.entries(groups).sort((a,b)=>
+    b[1].reduce((s,i)=>s+(+i.amount||0),0) - a[1].reduce((s,i)=>s+(+i.amount||0),0)
+  );
+
+  return h("div",null,
+    sorted.map(([vendor, vendorItems])=>{
+      const total = vendorItems.reduce((s,i)=>s+(+i.amount||0),0);
+      const isOpen = openVendor===vendor;
+      return h("div",{key:vendor,style:{marginBottom:6,borderRadius:8,border:"1px solid #E5E2DC",overflow:"hidden"}},
+        // Vendor header row
+        h("div",{onClick:()=>setOpenVendor(isOpen?null:vendor),
+          style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:"pointer",
+                 background:isOpen?"#F5F3F0":"#FFF"}},
+          h("div",{style:{flex:1,minWidth:0}},
+            h("div",{style:{fontSize:13,fontWeight:700,color:"#1C1917"}},vendor),
+            h("div",{style:{fontSize:11,color:"#A8A29E"}},vendorItems.length+" item"+(vendorItems.length!==1?"s":""))
+          ),
+          h("span",{style:{fontSize:14,fontWeight:700,color:"#2563EB",flexShrink:0}},"$"+total.toFixed(2)),
+          h("span",{style:{fontSize:11,color:"#A8A29E",marginLeft:6}},isOpen?"▲":"▼")
+        ),
+        // Line items
+        isOpen&&h("div",{style:{borderTop:"1px solid #F0EDE8"}},
+          vendorItems.map(item=>
+            h("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderBottom:"1px solid #F0EDE8",background:"#FAFAF9"}},
+              h("div",{style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:12,fontWeight:600,color:"#1C1917",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},item.desc||item.category),
+                h("div",{style:{fontSize:11,color:"#A8A29E"}},
+                  (item.invoiceNo?"#"+item.invoiceNo+" · ":"")+item.date
+                )
+              ),
+              h("span",{style:{fontSize:13,fontWeight:700,color:"#2563EB",flexShrink:0}},"$"+Number(item.amount).toFixed(2)),
+              h("button",{onClick:()=>onEdit(item),style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:13,padding:"0 4px",flexShrink:0}},"✏"),
+              h("button",{onClick:()=>onDelete(item),style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",flexShrink:0}},"×")
+            )
+          )
+        )
+      );
+    })
+  );
+}
+
 //  -- CogsSheet ----------------------------------------------
 function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChange, onAddVendor}) {
   const items = cogs[projId] || [];
   const today = new Date().toISOString().slice(0,10);
-  const blank = {category:"Materials", desc:"", amount:"", vendor:"", date:today, invoiceNo:""};
+  const blank = {desc:"", amount:"", vendor:"", date:today, invoiceNo:""};
   const [form, setForm] = React.useState(blank);
   const [editId, setEditId] = React.useState(null);
   const [quickVendor, setQuickVendor] = React.useState("");
@@ -550,30 +603,48 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
       try { parsed = JSON.parse(text.replace(/```json|```/g,"").trim()); }
       catch(pe) { throw new Error("Could not parse AI response: "+text.slice(0,100)); }
 
-      // Check for duplicate invoice number
+      // Check for duplicate invoice number across all cogs entries
       if (parsed.invoiceNo) {
+        const invLow = parsed.invoiceNo.toLowerCase().trim();
         const allItems = Object.values(cogs).flat();
-        const dup = allItems.find(i => i.invoiceNo && i.invoiceNo.toLowerCase() === parsed.invoiceNo.toLowerCase());
+        const dup = allItems.find(i => i.invoiceNo && i.invoiceNo.toLowerCase().trim()===invLow);
         if (dup) {
-          setScanError("⚠ Invoice #"+parsed.invoiceNo+" has already been uploaded. Duplicate blocked.");
+          setScanError("⚠ Invoice #"+parsed.invoiceNo+" already exists. Duplicate blocked.");
           setScanning(false);
           return;
         }
       }
 
       // Pre-fill form with extracted data
+      // Match vendor name against existing vendors (partial match)
+      let vendorName = parsed.vendor||"";
+      if(vendorName) {
+        const vLow = vendorName.toLowerCase().trim();
+        const match = vendors.find(v=>{ const eLow=v.name.toLowerCase().trim(); return eLow===vLow||eLow.includes(vLow)||vLow.includes(eLow); });
+        if(match) vendorName = match.name;
+      }
       setForm(f => ({
         ...f,
-        vendor:    parsed.vendor      || f.vendor,
+        vendor:    vendorName         || f.vendor,
         amount:    parsed.amount      ? String(parsed.amount) : f.amount,
         date:      parsed.date        || f.date,
         desc:      parsed.description || f.desc,
         invoiceNo: parsed.invoiceNo   || f.invoiceNo,
       }));
 
-      // Auto-add vendor if new
-      if (parsed.vendor && !vendors.find(v=>v.name.toLowerCase()===parsed.vendor.toLowerCase())) {
-        onAddVendor && onAddVendor(parsed.vendor);
+      // Auto-add vendor if new — use partial match to avoid duplicates
+      if (parsed.vendor) {
+        const vLow = parsed.vendor.toLowerCase().trim();
+        const existing = vendors.find(v=>{
+          const eLow = v.name.toLowerCase().trim();
+          return eLow===vLow || eLow.includes(vLow) || vLow.includes(eLow);
+        });
+        if (!existing) {
+          onAddVendor && onAddVendor(parsed.vendor.trim());
+        } else {
+          // Use the existing vendor name in the form instead of AI-returned name
+          setForm(f=>({...f, vendor: existing.name}));
+        }
       }
     } catch(err) {
       setScanError("Could not read: "+(err.message||"unknown error")+". Please fill in manually.");
@@ -592,7 +663,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
   function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
-    const item = {id:editId||Date.now(), category:form.category, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
+    const item = {id:editId||Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
     setCogs(p=>({...p,[projId]: editId
       ? (p[projId]||[]).map(i=>i.id===editId?item:i)
       : [...(p[projId]||[]), item]
@@ -600,7 +671,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
     setForm(blank); setEditId(null);
   }
   function del(id){ setCogs(p=>({...p,[projId]:(p[projId]||[]).filter(i=>i.id!==id)})); setConfirmCogs(null); }
-  function edit(item){ setForm({category:item.category,desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date}); setEditId(item.id); }
+  function edit(item){ setForm({desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date,invoiceNo:item.invoiceNo||""}); setEditId(item.id); }
   function addQuickVendor(){
     if(!quickVendor.trim()) return;
     const name=quickVendor.trim();
@@ -681,18 +752,10 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
     h("div",{style:{background:editId?"#FFFBEB":"#F8F7F4",border:"1.5px solid "+(editId?"#FDE68A":"#E5E2DC"),borderRadius:10,padding:"12px",marginBottom:14}},
       h("div",{style:{fontSize:11,fontWeight:700,color:editId?"#D97706":"#1C1917",marginBottom:10,letterSpacing:"0.04em"}},editId?"✏ EDIT ENTRY":"+ NEW ENTRY"),
 
-      // Row 1: Category + Amount
-      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
-        h("div",null,
-          lbl("Category"),
-          h("select",{value:form.category,onChange:e=>setForm(f=>({...f,category:e.target.value})),style:{...inp,appearance:"none"}},
-            ["Materials","Other"].map(c=>h("option",{key:c,value:c},c))
-          )
-        ),
-        h("div",null,
-          lbl("Amount ($)"),
-          h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:form.amount,onChange:e=>setForm(f=>({...f,amount:e.target.value})),style:inp})
-        )
+      // Amount
+      h("div",{style:{marginBottom:8}},
+        lbl("Amount ($)"),
+        h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:form.amount,onChange:e=>setForm(f=>({...f,amount:e.target.value})),style:inp})
       ),
 
       // Row 2: Description
@@ -738,28 +801,15 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
       )
     ),
 
-    //  -- Items list --
+    //  -- Items grouped by vendor --
     items.length===0&&h("div",{style:{fontSize:12,color:"#A8A29E",textAlign:"center",padding:24}},"No costs added yet."),
-    [...items].sort((a,b)=>b.date.localeCompare(a.date)).map(item=>
-      h("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #F0EDE8"}},
-        h("div",{style:{flex:1,minWidth:0}},
-          h("div",{style:{fontSize:13,fontWeight:600,color:"#1C1917",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},item.desc),
-          h("div",{style:{fontSize:11,color:"#78716C"}},
-            item.category+(item.vendor?" · "+item.vendor:"")+(item.invoiceNo?" · #"+item.invoiceNo:"")+" · "+item.date
-          )
-        ),
-        h("span",{style:{fontSize:14,fontWeight:700,color:"#2563EB",flexShrink:0}},"$"+Number(item.amount).toFixed(2)),
-        h("button",{onClick:()=>edit(item),style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:13,padding:"0 4px",flexShrink:0}},"✏"),
-        h("button",{onClick:()=>setConfirmCogs(item),style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
-      )
-    ),
+    items.length>0&&h(CogsVendorList,{items,onEdit:edit,onDelete:setConfirmCogs}),
 
     // Confirm delete dialog
     confirmCogs&&h("div",{onClick:()=>setConfirmCogs(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
       h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
         h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Delete entry?"),
         h("div",{style:{fontSize:13,color:"#78716C",marginBottom:4}},confirmCogs.desc),
-        h("div",{style:{fontSize:13,color:"#78716C",marginBottom:4}},confirmCogs.category+(confirmCogs.vendor?" · "+confirmCogs.vendor:"")),
         h("div",{style:{fontSize:14,fontWeight:700,color:"#2563EB",marginBottom:20}},"$"+Number(confirmCogs.amount).toFixed(2)+" · "+confirmCogs.date),
         h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
           h("button",{onClick:()=>setConfirmCogs(null),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
@@ -1085,25 +1135,6 @@ function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProj
       h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmProj(proj)})
     ),
 
-    // ── Clock In/Out — only if not completed ──
-    proj.status!=="Completed"&&h(Section,{id:"clock",label:"Clock In / Out",
-      badge:isLive?"● Live":null},
-      h("div",{style:{padding:"10px 16px"}},
-        emps.map(emp=>{
-          const act=activeFor(emp.id,proj.id);
-          return h("div",{key:emp.id,style:{display:"flex",alignItems:"center",gap:10,marginBottom:6}},
-            h("div",{style:{width:7,height:7,borderRadius:"50%",background:emp.color,flexShrink:0}}),
-            h("span",{style:{flex:1,fontSize:13}},emp.name),
-            act&&h("span",{style:{fontSize:11,color:T.dim}},"since "+fmtTime(act.start)),
-            act&&h("span",{style:{fontSize:12,fontWeight:700,color:T.amber,minWidth:36,textAlign:"right"}},h(LiveTimer,{start:act.start})),
-            act
-              ? h(Btn,{label:"Out",size:"sm",variant:"ghost",onClick:()=>clockOut(act.id)})
-              : h(Btn,{label:"In",size:"sm",variant:"green",onClick:()=>clockIn(emp.id,proj.id)})
-          );
-        })
-      )
-    ),
-
     // ── Time Log ──
     h(Section,{id:"timelog",label:"Time Log",badge:hrs>0?fmtHrs(hrs):projDone.length===0?"No entries":null},
       h("div",{style:{padding:"10px 16px"}},
@@ -1281,11 +1312,8 @@ function App(){
   function projCogsTotals(projId){
     const items=(cogs[projId]||[]);
     const total=items.reduce((s,i)=>s+(+i.amount||0),0);
-    const byCategory={};
-    items.forEach(i=>{ byCategory[i.category]=(byCategory[i.category]||0)+(+i.amount||0); });
-    return {total,items,byCategory};
+    return {total,items};
   }
-  const COGS_CATS = ["Materials","Other"];
   function entryCost(e){ const emp=emps.find(x=>x.id===e.empId); return emp&&emp.rate?(e.end-e.start)/3600000*emp.rate:0; }
   function clockIn(eid,pid){
     if(activeFor(eid,pid))return;

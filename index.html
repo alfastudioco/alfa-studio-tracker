@@ -684,12 +684,12 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
   const byCat={};
   items.forEach(i=>{ byCat[i.category]=(byCat[i.category]||0)+(+i.amount||0); });
 
-  return h(Sheet,{title:"COGS — "+proj.name, onClose},
+  return h(Sheet,{title:"Costs — "+proj.name, onClose},
 
     //  -- Summary card --
     h("div",{style:{background:"#1C1917",borderRadius:12,padding:"14px 16px",marginBottom:14}},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:budget>0?8:0}},
-        h("span",{style:{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.06em",textTransform:"uppercase"}},"Total COGS"),
+        h("span",{style:{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.06em",textTransform:"uppercase"}},"Total Cost"),
         h("div",{style:{display:"flex",alignItems:"baseline",gap:10}},
           h("span",{style:{fontSize:20,fontWeight:800,color:"#60A5FA"}},"$"+total.toFixed(2)),
           budget>0&&h("span",{style:{fontSize:11,color:"rgba(255,255,255,0.35)"}},"/ $"+budget.toFixed(2))
@@ -1007,7 +1007,7 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
 
 
 //  -- ScopePanel --
-function ScopePanel({projId, projRooms, setProjRooms, fmtCost, T, line, faint}) {
+function ScopePanel({projId, proj, projRooms, setProjRooms, fmtCost, T, line, faint}) {
   const rooms = projRooms[projId]||[];
   const total = rooms.reduce((s,r)=>s+(+r.price||0),0);
   const nameRef = React.useRef(null);
@@ -1036,15 +1036,18 @@ function ScopePanel({projId, projRooms, setProjRooms, fmtCost, T, line, faint}) 
   return h("div",{style:{padding:"0 16px 12px"}},
 
     // Column headers
-    h("div",{style:{display:"flex",gap:8,padding:"8px 0 4px",borderBottom:"2px solid "+line}},
+    h("div",{style:{display:"flex",gap:8,padding:"8px 0 4px",borderBottom:"2px solid "+line,alignItems:"center"}},
       h("span",{style:{flex:1,fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em"}},"Room / Area"),
       h("span",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em",minWidth:110,textAlign:"right"}},"Sale Price"),
+      h("span",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em",minWidth:80,textAlign:"center"}},"Approved"),
       h("span",{style:{width:20}})
     ),
 
     // Room rows
-    rooms.map(room=>
-      h("div",{key:room.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+line}},
+    rooms.map(room=>{
+      const approved = room.approved||false;
+      const approvedDate = room.approvedDate||"";
+      return h("div",{key:room.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+line}},
         h("input",{value:room.name,onChange:e=>update(room.id,"name",e.target.value),
           style:{...inp(),flex:1,fontSize:13,fontWeight:600}}),
         h("div",{style:{display:"flex",alignItems:"center",background:faint,border:"1px solid "+T.border,borderRadius:6,padding:"4px 8px",minWidth:110}},
@@ -1053,10 +1056,25 @@ function ScopePanel({projId, projRooms, setProjRooms, fmtCost, T, line, faint}) 
             onChange:e=>update(room.id,"price",e.target.value),
             style:{...inp(),width:80,fontSize:13,fontWeight:700,textAlign:"right"}})
         ),
+        // Approval toggle
+        h("div",{style:{minWidth:80,display:"flex",flexDirection:"column",alignItems:"center",gap:2}},
+          h("button",{
+            onClick:()=>update(room.id,"approved",!approved)||update(room.id,"approvedDate",!approved?new Date().toISOString().slice(0,10):""),
+            onClick:()=>{const nowApproved=!approved;update(room.id,"approved",nowApproved);update(room.id,"approvedDate",nowApproved?new Date().toISOString().slice(0,10):"");},
+            style:{
+              borderRadius:20,cursor:"pointer",fontSize:11,fontWeight:700,padding:"3px 10px",
+              background:approved?"#F0FDF4":"#F5F3F0",
+              color:approved?"#16A34A":"#A8A29E",
+              border:"1px solid "+(approved?"#BBF7D0":"#E5E2DC"),
+              whiteSpace:"nowrap"
+            }
+          },approved?"✓ Approved":"Pending"),
+          approved&&approvedDate&&h("span",{style:{fontSize:9,color:T.dim}},approvedDate)
+        ),
         h("button",{onClick:()=>setConfirmRoom(room),
           style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1,width:20}},"×")
-      )
-    ),
+      );
+    }),
 
     // Add row
     h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+line}},
@@ -1073,10 +1091,55 @@ function ScopePanel({projId, projRooms, setProjRooms, fmtCost, T, line, faint}) 
         style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"4px 8px",fontSize:12,fontWeight:700,cursor:"pointer",width:20,display:"flex",alignItems:"center",justifyContent:"center"}},"+")
     ),
 
-    // Total
-    total>0&&h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 2px"}},
-      h("span",{style:{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em"}},"Contract Total"),
-      h("span",{style:{fontSize:16,fontWeight:800,color:T.green}},fmtCost(total))
+    // Total + approval summary
+    total>0&&h("div",{style:{borderTop:"2px solid "+line,marginTop:4}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 4px"}},
+        h("div",null,
+          h("div",{style:{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.06em"}},"Contract Total"),
+          h("div",{style:{fontSize:10,color:T.dim,marginTop:2}},
+            rooms.filter(r=>r.approved).length+"/"+rooms.length+" rooms approved"
+          )
+        ),
+        h("div",{style:{textAlign:"right"}},
+          h("div",{style:{fontSize:16,fontWeight:800,color:T.green}},fmtCost(total)),
+          rooms.filter(r=>r.approved).length>0&&h("div",{style:{fontSize:11,color:T.green}},
+            fmtCost(rooms.filter(r=>r.approved).reduce((s,r)=>s+(+r.price||0),0))+" approved"
+          )
+        )
+      )
+    ),
+
+    // Send for approval button
+    rooms.length>0&&h("div",{style:{marginTop:10}},
+      h("button",{
+        onClick:()=>{
+          const lines = [
+            "Hi "+(proj.client||"there")+",",
+            "",
+            "Please review the scope and pricing for your project: "+proj.name,
+            "",
+            ...rooms.map(r=>"  • "+r.name+": "+fmtCost(+r.price||0)+(r.approved?" ✓ Approved":"")),
+            "",
+            "Total: "+fmtCost(rooms.reduce((s,r)=>s+(+r.price||0),0)),
+            "",
+            "Please reply to confirm your approval of the above scope and pricing.",
+            "",
+            "Thank you,",
+            "Alfa Studio"
+          ].join("\n");
+          // Open email client
+          const subject = encodeURIComponent("Scope & Pricing Approval — "+proj.name);
+          const body = encodeURIComponent(lines);
+          const email = "";
+          window.open("mailto:"+email+"?subject="+subject+"&body="+body);
+          // Also copy to clipboard as fallback
+          navigator.clipboard&&navigator.clipboard.writeText(lines).catch(()=>{});
+        },
+        style:{width:"100%",background:T.blue,color:"#FFF",border:"none",borderRadius:8,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}
+      },
+        h("span",null,"✉ Send for Approval"),
+        h("span",{style:{fontSize:11,opacity:0.8}},"— opens email client")
+      )
     ),
 
     // Confirm delete dialog
@@ -1145,14 +1208,14 @@ function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProj
     ),
 
     // ── Materials / COGS ──
-    h(Section,{id:"cogs",label:"Materials & Costs",badge:ct.total>0?fmtCost(ct.total):null},
+    h(Section,{id:"cogs",label:"Costs",badge:ct.total>0?fmtCost(ct.total):null},
       h(VendorBreakdown,{projId:proj.id,cogs,fmtCost,T,secLabel,line:T.line,faint:T.faint})
     ),
 
     // ── Scope / Rooms ──
     h(Section,{id:"scope",label:"Scope & Pricing",
-      badge:roomList.length>0?(fmtCost(roomTotal)+" · "+roomList.length+" room"+(roomList.length!==1?"s":"")):null},
-      h(ScopePanel,{projId:proj.id,projRooms,setProjRooms,fmtCost,T,line:T.line,faint:T.faint})
+      badge:roomList.length>0?(fmtCost(roomTotal)+" · "+roomList.filter(r=>r.approved).length+"/"+roomList.length+" approved"):null},
+      h(ScopePanel,{projId:proj.id,proj,projRooms,setProjRooms,fmtCost,T,line:T.line,faint:T.faint})
     ),
 
     // ── Client Selections & Files ──
@@ -1213,6 +1276,207 @@ function VendorBreakdown({projId,cogs,fmtCost,T,secLabel,line,faint}) {
   );
 }
 
+
+//  -- ClientsTab --
+function ClientsTab({clients,setClients,projs,setProjs,projRooms,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}) {
+  const [expandClient,setExpandClient] = React.useState(null);
+  const [editClient,setEditClient]     = React.useState(null); // client being edited
+  const [draft,setDraft]               = React.useState({});
+  const [adding,setAdding]             = React.useState(false);
+  const [newClient,setNewClient]       = React.useState({name:"",phone:"",email:"",address:"",notes:""});
+  const [confirmClient,setConfirmClient] = React.useState(null);
+  const [addingProj,setAddingProj]       = React.useState(null); // client name
+  const [newProjName,setNewProjName]     = React.useState("");
+  const [newProjStatus,setNewProjStatus] = React.useState("Not Started");
+
+  const inp = {width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
+
+  function saveEdit(c) {
+    setClients(p=>p.map(x=>x.id===c.id?{...x,...draft}:x));
+    setEditClient(null); setDraft({});
+  }
+  function deleteClient(id) {
+    setClients(p=>p.filter(x=>x.id!==id));
+    setConfirmClient(null);
+  }
+  function addClient() {
+    if(!newClient.name.trim()) return;
+    setClients(p=>[...p,{id:Date.now(),...newClient}]);
+    setNewClient({name:"",phone:"",email:"",address:"",notes:""});
+    setAdding(false);
+  }
+
+  // Stats per client
+  function clientStats(clientName) {
+    const clientProjs = projs.filter(p=>p.client===clientName);
+    const totalRevenue = clientProjs.reduce((s,p)=>{
+      const rooms = projRooms[p.id]||[];
+      return s + (rooms.length>0 ? rooms.reduce((rs,r)=>rs+(+r.price||0),0) : (+p.salePrice||0));
+    },0);
+    const totalHrs = clientProjs.reduce((s,p)=>s+done.filter(e=>e.projId===p.id).reduce((ss,e)=>ss+(e.end-e.start),0),0);
+    const totalCogs = clientProjs.reduce((s,p)=>s+(cogs[p.id]||[]).reduce((ss,i)=>ss+(+i.amount||0),0),0);
+    const totalLabor = clientProjs.reduce((s,p)=>s+done.filter(e=>e.projId===p.id).reduce((ss,e)=>ss+entryCost(e),0),0);
+    return {clientProjs, totalRevenue, totalHrs, totalCogs, totalLabor, totalCost:totalCogs+totalLabor};
+  }
+
+  const totalRevAll = clients.reduce((s,c)=>s+clientStats(c.name).totalRevenue,0);
+
+  return h("div",null,
+    // Header
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+      h("span",{style:{fontSize:13,color:T.sub}},clients.length+" client"+(clients.length!==1?"s":"")+(totalRevAll>0?" · "+fmtCost(totalRevAll)+" total":"")),
+      h("button",{onClick:()=>setAdding(true),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ Add Client")
+    ),
+
+    // Add client form
+    adding&&h("div",{style:{...card,marginBottom:12,padding:16,background:"#F0FDF4",border:"1.5px solid #BBF7D0"}},
+      h("div",{style:{fontSize:12,fontWeight:700,color:T.green,marginBottom:12}},"NEW CLIENT"),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        h("div",null, lbl("Name"), h("input",{type:"text",value:newClient.name,onChange:e=>setNewClient(p=>({...p,name:e.target.value})),style:inp})),
+        h("div",null, lbl("Phone"), h("input",{type:"tel",value:newClient.phone,onChange:e=>setNewClient(p=>({...p,phone:e.target.value})),style:inp}))
+      ),
+      h("div",{style:{marginBottom:8}}, lbl("Email"), h("input",{type:"email",value:newClient.email,onChange:e=>setNewClient(p=>({...p,email:e.target.value})),style:inp})),
+      h("div",{style:{marginBottom:8}}, lbl("Address"), h("input",{type:"text",value:newClient.address,onChange:e=>setNewClient(p=>({...p,address:e.target.value})),style:inp})),
+      h("div",{style:{marginBottom:12}}, lbl("Notes"), h("textarea",{value:newClient.notes,onChange:e=>setNewClient(p=>({...p,notes:e.target.value})),rows:2,style:{...inp,resize:"vertical"}})),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h("button",{onClick:()=>setAdding(false),style:{borderRadius:8,cursor:"pointer",fontSize:12,padding:"7px 14px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+        h("button",{onClick:addClient,style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,padding:"7px 16px",background:T.text,color:"#FFF",border:"none"}},"✓ Add Client")
+      )
+    ),
+
+    clients.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No clients yet."),
+
+    clients.map(client=>{
+      const isExp = expandClient===client.id;
+      const isEdit = editClient===client.id;
+      const {clientProjs,totalRevenue,totalHrs,totalCogs,totalLabor,totalCost} = clientStats(client.name);
+      const profit = totalRevenue>0 ? totalRevenue-totalCost : null;
+      const d = isEdit ? draft : client;
+
+      return h("div",{key:client.id,style:{...card,marginBottom:10,borderLeft:"3px solid "+T.blue}},
+
+        // Client header
+        h("div",{style:{padding:"12px 16px",cursor:"pointer"},onClick:()=>!isEdit&&setExpandClient(isExp?null:client.id)},
+          h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+            h("div",{style:{width:36,height:36,borderRadius:"50%",background:T.blue+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:T.blue,flexShrink:0}},
+              client.name.charAt(0).toUpperCase()
+            ),
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{fontSize:15,fontWeight:700,color:T.text}},client.name),
+              h("div",{style:{fontSize:12,color:T.sub}},
+                clientProjs.length+" project"+(clientProjs.length!==1?"s":""),
+                totalRevenue>0&&" · "+fmtCost(totalRevenue)+" revenue",
+                totalHrs>0&&" · "+fmtHrs(totalHrs)+" hrs"
+              )
+            ),
+            profit!==null&&h("div",{style:{textAlign:"right",flexShrink:0}},
+              h("div",{style:{fontSize:11,color:T.sub}},"Profit"),
+              h("div",{style:{fontSize:13,fontWeight:700,color:profit>=0?T.green:T.red}},(profit>=0?"+":"")+fmtCost(profit))
+            ),
+            h("span",{style:{color:T.dim,fontSize:12}},isExp?"▲":"▼")
+          )
+        ),
+
+        // Expanded
+        isExp&&h("div",{style:{borderTop:"1px solid "+T.line}},
+
+          // Contact info
+          isEdit
+            ? h("div",{style:{padding:16}},
+                h("div",{style:{fontSize:11,fontWeight:700,color:T.amber,marginBottom:12,letterSpacing:"0.04em"}},"EDIT CLIENT"),
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+                  h("div",null, lbl("Name"), h("input",{value:d.name||"",onChange:e=>setDraft(p=>({...p,name:e.target.value})),style:inp})),
+                  h("div",null, lbl("Phone"), h("input",{value:d.phone||"",onChange:e=>setDraft(p=>({...p,phone:e.target.value})),style:inp}))
+                ),
+                h("div",{style:{marginBottom:8}}, lbl("Email"), h("input",{value:d.email||"",onChange:e=>setDraft(p=>({...p,email:e.target.value})),style:inp})),
+                h("div",{style:{marginBottom:8}}, lbl("Address"), h("input",{value:d.address||"",onChange:e=>setDraft(p=>({...p,address:e.target.value})),style:inp})),
+                h("div",{style:{marginBottom:12}}, lbl("Notes"), h("textarea",{value:d.notes||"",onChange:e=>setDraft(p=>({...p,notes:e.target.value})),rows:2,style:{...inp,resize:"vertical"}})),
+                h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+                  h("button",{onClick:()=>{setEditClient(null);setDraft({});},style:{borderRadius:8,cursor:"pointer",fontSize:12,padding:"7px 14px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+                  h("button",{onClick:()=>saveEdit(client),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,padding:"7px 16px",background:T.text,color:"#FFF",border:"none"}},"✓ Save")
+                )
+              )
+            : h("div",{style:{padding:"12px 16px",borderBottom:"1px solid "+T.line}},
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:client.notes?8:0}},
+                  client.phone&&h("div",null,
+                    h("div",{style:{fontSize:10,color:T.dim,marginBottom:2}},"PHONE"),
+                    h("a",{href:"tel:"+client.phone,style:{fontSize:13,color:T.blue,fontWeight:600,textDecoration:"none"}},client.phone)
+                  ),
+                  client.email&&h("div",null,
+                    h("div",{style:{fontSize:10,color:T.dim,marginBottom:2}},"EMAIL"),
+                    h("a",{href:"mailto:"+client.email,style:{fontSize:13,color:T.blue,fontWeight:600,textDecoration:"none"}},client.email)
+                  ),
+                  client.address&&h("div",{style:{gridColumn:"1/-1"}},
+                    h("div",{style:{fontSize:10,color:T.dim,marginBottom:2}},"ADDRESS"),
+                    h("div",{style:{fontSize:13,color:T.text}},client.address)
+                  )
+                ),
+                client.notes&&h("div",{style:{marginTop:6,fontSize:12,color:T.sub,fontStyle:"italic"}},client.notes)
+              ),
+
+          // Revenue stats
+          h("div",{style:{padding:"10px 16px",borderBottom:"1px solid "+T.line,display:"flex",gap:16,flexWrap:"wrap"}},
+            h("div",null, h("div",{style:{fontSize:10,color:T.dim}},"PROJECTS"), h("div",{style:{fontSize:14,fontWeight:700,color:T.text}},clientProjs.length)),
+            totalRevenue>0&&h("div",null, h("div",{style:{fontSize:10,color:T.dim}},"REVENUE"), h("div",{style:{fontSize:14,fontWeight:700,color:T.green}},fmtCost(totalRevenue))),
+            totalHrs>0&&h("div",null, h("div",{style:{fontSize:10,color:T.dim}},"HOURS"), h("div",{style:{fontSize:14,fontWeight:700,color:T.amber}},fmtHrs(totalHrs))),
+            totalCost>0&&h("div",null, h("div",{style:{fontSize:10,color:T.dim}},"COST"), h("div",{style:{fontSize:14,fontWeight:700,color:T.text}},fmtCost(totalCost))),
+            profit!==null&&h("div",null, h("div",{style:{fontSize:10,color:T.dim}},"PROFIT"), h("div",{style:{fontSize:14,fontWeight:700,color:profit>=0?T.green:T.red}},(profit>=0?"+":"")+fmtCost(profit)))
+          ),
+
+          // Project list
+          h("div",{style:{padding:"10px 16px",borderBottom:"1px solid "+T.line}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+              h("div",{style:secLabel},"Projects"),
+              h("button",{
+                onClick:()=>{
+                  setPf({name:"",client:client.name,status:"Not Started",deadline:"",assignedTo:[],salePrice:""});
+                  setEditingProj("new");
+                  setAdminTab("projects");
+                },
+                style:{fontSize:11,fontWeight:700,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}
+              },"+ New Project")
+            ),
+            clientProjs.length===0&&h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No projects yet."),
+            clientProjs.map(p=>{
+              const rooms=projRooms[p.id]||[];
+              const rev=rooms.length>0?rooms.reduce((s,r)=>s+(+r.price||0),0):(+p.salePrice||0);
+              const sc = {"Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
+              return h("div",{key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid "+T.line}},
+                h("div",{style:{width:6,height:6,borderRadius:"50%",background:sc[p.status]||"#94A3B8",flexShrink:0}}),
+                h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:T.text}},p.name),
+                h("span",{style:{fontSize:11,fontWeight:600,color:sc[p.status]||"#94A3B8"}},p.status),
+                rev>0&&h("span",{style:{fontSize:12,fontWeight:700,color:T.green}},fmtCost(rev))
+              );
+            })
+          ),
+
+          // Actions
+          !isEdit&&h("div",{style:{padding:"10px 16px",display:"flex",gap:8,justifyContent:"flex-end"}},
+            h("button",{onClick:()=>{setEditClient(client.id);setDraft({name:client.name,phone:client.phone||"",email:client.email||"",address:client.address||"",notes:client.notes||""});},
+              style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.faint,color:T.text,border:"1px solid "+T.border}},"✏ Edit"),
+            h("button",{onClick:()=>setConfirmClient(client),
+              style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+          )
+        )
+      );
+    }),
+
+    // Confirm delete
+    confirmClient&&h("div",{onClick:()=>setConfirmClient(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Delete client?"),
+        h("div",{style:{fontSize:14,color:"#78716C",marginBottom:4}},confirmClient.name),
+        h("div",{style:{fontSize:12,color:"#DC2626",marginBottom:20}},"This will not delete their projects."),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmClient(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>deleteClient(confirmClient.id),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+        )
+      )
+    )
+  );
+}
+
 //  -- Main App -----------------------------------------------
 function App(){
   const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
@@ -1257,6 +1521,9 @@ function App(){
   const [cogsSheet,setCogsSheet] = useState(null);
   const [cogs,setCogs]           = useState(()=>load("alfa_cogs",{}));
   const [vendors,setVendors]     = useState(()=>load("alfa_vendors",[]));
+  const [clients,setClients]     = useState(()=>load("alfa_clients",[]));
+  const [quickClientName,setQuickClientName] = useState("");
+  const [showQuickClient,setShowQuickClient] = useState(false);
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [confirmProj,setConfirmProj]   = useState(null);
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
@@ -1294,6 +1561,7 @@ function App(){
   },[entries]);
   useEffect(()=>{ try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{} },[cogs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{} },[vendors]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{} },[clients]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projrooms",JSON.stringify(projRooms));}catch{} },[projRooms]);
 
@@ -1457,7 +1725,7 @@ function App(){
     mode==="admin"&&h("div",null,
       // Admin tabs
       h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px"}},
-        [["projects","Projects"],["crew","Crew"],["vendors","Vendors"]].map(([t,l])=>
+        [["projects","Projects"],["crew","Crew"],["clients","Clients"],["vendors","Vendors"]].map(([t,l])=>
           h("button",{key:t,onClick:()=>setAdminTab(t),style:{background:"none",border:"none",borderBottom:adminTab===t?"2px solid "+T.text:"2px solid transparent",color:adminTab===t?T.text:T.sub,padding:"12px 16px",cursor:"pointer",fontSize:13,fontWeight:adminTab===t?700:500,marginBottom:-1}},l)
         )
       ),
@@ -1503,7 +1771,19 @@ function App(){
           editingProj==="new"&&h("div",{style:{...card,marginBottom:12,padding:16,background:"#F0FDF4",border:"1.5px solid #BBF7D0"}},
             h("div",{style:{fontSize:12,fontWeight:700,color:T.green,marginBottom:12}},"NEW PROJECT"),
             h(Field,{label:"Project Name",value:pf.name,onChange:v=>setPf({...pf,name:v})}),
-            h(Field,{label:"Client",value:pf.client,onChange:v=>setPf({...pf,client:v})}),
+            h("div",{style:{marginBottom:14}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Client"),
+              h("select",{value:pf.client,onChange:e=>{if(e.target.value==="__new__"){setShowQuickClient(true);}else{setPf({...pf,client:e.target.value});}},style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+                h("option",{value:""},"Select client…"),
+                clients.map(c=>h("option",{key:c.id,value:c.name},c.name)),
+                h("option",{value:"__new__"},"+ Add new client…")
+              ),
+              showQuickClient&&h("div",{style:{display:"flex",gap:6,marginTop:6}},
+                h("input",{type:"text",autoFocus:true,placeholder:"Client name",value:quickClientName,onChange:e=>setQuickClientName(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&quickClientName.trim()){const n=quickClientName.trim();setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);}},style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}}),
+                h("button",{onClick:()=>{const n=quickClientName.trim();if(!n)return;setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
+                h("button",{onClick:()=>{setShowQuickClient(false);setQuickClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
+              )
+            ),
             h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
             h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
             h("div",{style:{marginBottom:14}},
@@ -1527,22 +1807,52 @@ function App(){
             )
           ),
 
-          ...(projFilter==="All"?projs:projs.filter(p=>p.status===projFilter)).length===0?[h("div",{key:"empty",style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},projFilter==="All"?"No projects yet.":"No "+projFilter+" projects.")]:[],
-          ...(projFilter==="All"?projs:projs.filter(p=>p.status===projFilter)).map(proj=>{
+          ...(()=>{
+            const filtered = projFilter==="All"?projs:projs.filter(p=>p.status===projFilter);
+            if(filtered.length===0) return [h("div",{key:"empty",style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},projFilter==="All"?"No projects yet.":"No "+projFilter+" projects.")];
+            // Group by client
+            const groups={};
+            filtered.forEach(p=>{ const k=p.client||"No Client"; if(!groups[k])groups[k]=[]; groups[k].push(p); });
+            const sorted=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0]));
+            const CLIENT_COLORS=["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5","#BE185D","#0F766E"];
+            const clientColorMap={};
+            sorted.forEach(([name],i)=>{ clientColorMap[name]=CLIENT_COLORS[i%CLIENT_COLORS.length]; });
+            return sorted.flatMap(([clientName,clientProjs])=>{
+              const cc = clientName==="No Client"?T.dim:clientColorMap[clientName];
+              return [
+              h("div",{key:"grp-"+clientName,style:{display:"flex",alignItems:"center",gap:8,margin:"8px 0 4px",padding:"0 2px"}},
+                h("div",{style:{width:10,height:10,borderRadius:"50%",background:cc,flexShrink:0}}),
+                h("span",{style:{fontSize:11,fontWeight:700,color:cc,letterSpacing:"0.04em"}},(clientName==="No Client"?"No Client":clientName)),
+                h("div",{style:{flex:1,height:1,background:cc+"33"}}),
+                h("span",{style:{fontSize:10,color:T.dim}},clientProjs.length+" project"+(clientProjs.length!==1?"s":""))
+              ),
+              ...clientProjs.map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-            return h("div",{key:proj.id,style:{...card,marginBottom:12,borderLeft:"3px solid "+(SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
+            return h("div",{key:proj.id,style:{...card,marginBottom:12,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
 
               // Inline edit form
               isEditing
                 ? h("div",{style:{padding:16}},
                     h("div",{style:{fontSize:12,fontWeight:700,color:T.amber,marginBottom:12}},"EDIT PROJECT"),
                     h(Field,{label:"Project Name",value:pf.name,onChange:v=>setPf({...pf,name:v})}),
-                    h(Field,{label:"Client",value:pf.client,onChange:v=>setPf({...pf,client:v})}),
+                    h("div",{style:{marginBottom:14}},
+                      h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Client"),
+                      h("select",{value:pf.client,onChange:e=>{if(e.target.value==="__new__"){setShowQuickClient(true);}else{setPf({...pf,client:e.target.value});}},style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+                        h("option",{value:""},"Select client…"),
+                        clients.map(c=>h("option",{key:c.id,value:c.name},c.name)),
+                        h("option",{value:"__new__"},"+ Add new client…")
+                      ),
+                      showQuickClient&&h("div",{style:{display:"flex",gap:6,marginTop:6}},
+                        h("input",{type:"text",autoFocus:true,placeholder:"Client name",value:quickClientName,onChange:e=>setQuickClientName(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&quickClientName.trim()){const n=quickClientName.trim();setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);}},style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}}),
+                        h("button",{onClick:()=>{const n=quickClientName.trim();if(!n)return;setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
+                        h("button",{onClick:()=>{setShowQuickClient(false);setQuickClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
+                      )
+                    ),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
                     h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
                     h("div",{style:{marginBottom:14}},
@@ -1573,6 +1883,7 @@ function App(){
                         h("div",{style:{flex:1,minWidth:0}},
                           h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}},
                             h("span",{style:{fontSize:15,fontWeight:700,color:T.text}},proj.name),
+                            proj.client&&h("span",{style:{fontSize:12,color:T.sub,fontWeight:500}},proj.client),
                             isLive&&badge(T.green,"● Live")
                           ),
                           // Cost summary row — clearly labeled columns
@@ -1629,6 +1940,9 @@ function App(){
                   )
             );
           }),
+          ]; // close inner array
+            }); // close flatMap
+          })() // close IIFE
 
         ),
 
@@ -1735,6 +2049,9 @@ function App(){
             );
           })
         ),
+
+        //  -- CLIENTS TAB --
+        adminTab==="clients"&&h(ClientsTab,{clients,setClients,projs,setProjs,projRooms,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}),
 
         //  -- VENDORS TAB --
         adminTab==="vendors"&&(()=>{

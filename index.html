@@ -1223,7 +1223,7 @@ function VendorBreakdown({projId,cogs,fmtCost,T,secLabel,line,faint}) {
 
 
 //  -- ClientsTab --
-function ClientsTab({clients,setClients,projs,setProjs,projRooms,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}) {
+function ClientsTab({clients,setClients,projs,setProjs,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}) {
   const [expandClient,setExpandClient] = React.useState(null);
   const [editClient,setEditClient]     = React.useState(null); // client being edited
   const [draft,setDraft]               = React.useState({});
@@ -2223,7 +2223,7 @@ function App(){
         ),
 
         //  -- CLIENTS TAB --
-        adminTab==="clients"&&h(ClientsTab,{clients,setClients,projs,setProjs,projRooms,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}),
+        adminTab==="clients"&&h(ClientsTab,{clients,setClients,projs,setProjs,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}),
 
         //  -- PAYROLL TAB --
         adminTab==="payroll"&&(()=>{

@@ -1912,7 +1912,7 @@ function App(){
         )
       ),
 
-      h("div",{style:{padding:"16px 16px 80px",maxWidth:1400,margin:"0 auto"}},
+      h("div",{style:{padding:"16px 16px 80px",maxWidth:860,margin:"0 auto"}},
 
         // PROJECTS TAB
         adminTab==="projects"&&h("div",null,
@@ -2054,15 +2054,14 @@ function App(){
                 h("span",{style:{fontSize:10,color:T.dim}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
                 h("span",{style:{fontSize:10,color:T.dim,marginLeft:4}},"⠿")
               ),
-              h("div",{key:"grid-"+clientName,style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:10,marginBottom:8}},
-                ...clientProjs.map(proj=>{
+              ...clientProjs.map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-                return h("div",{key:proj.id,style:{...card,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
+                return h("div",{key:proj.id,style:{...card,marginBottom:10,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
 
               // Inline edit form
               isEditing
@@ -2129,26 +2128,24 @@ function App(){
                         proj.deadline&&h("span",{style:{fontSize:10,color:T.dim}},"Due "+proj.deadline),
                         crew.map(e=>h("span",{key:e.id,style:{fontSize:10,color:e.color,fontWeight:700}},e.name))
                       ),
-                      // Numbers — compact pill row
+                      // Numbers row — Hours · Labor · Materials
                       (()=>{
                         const ct=projCogsTotals(proj.id);
                         const laborCost=done.filter(e=>e.projId===proj.id).reduce((s,e)=>s+entryCost(e),0);
-                        const totalCost=laborCost+ct.total;
                         const salePrice=+proj.salePrice||0;
+                        const totalCost=laborCost+ct.total;
                         const profit=salePrice>0?salePrice-totalCost:null;
                         if(!hrs&&!laborCost&&!ct.total&&!salePrice) return null;
-                        const pill=(label,val,color,onClick)=>h("div",{onClick,style:{display:"flex",alignItems:"center",gap:3,cursor:onClick?"pointer":"default"}},
-                          h("span",{style:{fontSize:9,color:color,opacity:0.7,textTransform:"uppercase",letterSpacing:"0.04em"}},label),
-                          h("span",{style:{fontSize:12,fontWeight:700,color:color}},val)
+                        const stat=(label,val,color,onClick)=>h("div",{onClick,
+                          style:{flex:1,background:color+"10",borderRadius:8,padding:"7px 10px",cursor:onClick?"pointer":"default",minWidth:0}},
+                          h("div",{style:{fontSize:10,fontWeight:600,color:color,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},label),
+                          h("div",{style:{fontSize:13,fontWeight:700,color:color}},val)
                         );
-                        return h("div",{style:{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}},
-                          hrs>0&&pill("hrs",fmtHrs(hrs),T.amber),
-                          laborCost>0&&pill("labor",fmtCost(laborCost),T.green),
-                          ct.total>0&&pill("mat",fmtCost(ct.total),T.blue,e=>{e.stopPropagation();setCogsSheet(proj.id);}),
-                          totalCost>0&&h("span",{style:{fontSize:10,color:T.dim}},"·"),
-                          totalCost>0&&pill("cost",fmtCost(totalCost),T.sub),
-                          salePrice>0&&pill("sale",fmtCost(salePrice),T.text),
-                          profit!==null&&h("span",{style:{fontSize:12,fontWeight:700,color:profit>=0?T.green:T.red}},(profit>=0?"↑":"↓")+fmtCost(Math.abs(profit)))
+                        return h("div",{style:{display:"flex",gap:6,marginTop:8}},
+                          hrs>0&&stat("Hours",fmtHrs(hrs),T.amber),
+                          laborCost>0&&stat("Labor",fmtCost(laborCost),T.green),
+                          ct.total>0&&stat("Materials",fmtCost(ct.total),T.blue,e=>{e.stopPropagation();setCogsSheet(proj.id);}),
+                          profit!==null&&stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red)
                         );
                       })()
                     ),
@@ -2162,7 +2159,6 @@ function App(){
                   )
             );
           }),
-          ) // close grid div
           ]; // close inner array
             }); // close flatMap
           })() // close IIFE

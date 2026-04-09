@@ -1578,66 +1578,45 @@ function getDateWindow(range,offset,customStart,customEnd) {
 }
 
 
-//  -- useDragSort --
-// Returns props to attach to each draggable item and the container
-function useDragSort(items, setItems, key) {
-  const dragIdx = React.useRef(null);
-  const dragOverIdx = React.useRef(null);
-
-  function onDragStart(i) {
-    dragIdx.current = i;
-  }
-  function onDragEnter(i) {
-    dragOverIdx.current = i;
-  }
-  function onDragEnd() {
-    const from = dragIdx.current;
-    const to = dragOverIdx.current;
-    if(from===null||to===null||from===to){ dragIdx.current=null; dragOverIdx.current=null; return; }
-    const next = [...items];
-    const [moved] = next.splice(from,1);
-    next.splice(to,0,moved);
-    setItems(next);
-    dragIdx.current=null; dragOverIdx.current=null;
-  }
-
-  // Touch support
-  const touchStartY = React.useRef(null);
-  const touchFromIdx = React.useRef(null);
-  function onTouchStart(i, e) {
-    touchFromIdx.current = i;
-    touchStartY.current = e.touches[0].clientY;
-  }
-  function onTouchEnd(i, e) {
-    // Find element under finger
-    const touch = e.changedTouches[0];
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    const card = el && el.closest('[data-sortidx]');
-    const toIdx = card ? parseInt(card.getAttribute('data-sortidx')) : null;
-    if(toIdx!==null && toIdx!==touchFromIdx.current){
-      const next = [...items];
-      const [moved] = next.splice(touchFromIdx.current,1);
-      next.splice(toIdx,0,moved);
-      setItems(next);
-    }
-    touchFromIdx.current=null;
-  }
+//  -- makeDragSort -- (no hooks, safe to call anywhere)
+function makeDragSort(items, setItems) {
+  let dragFrom = null;
+  let dragTo = null;
+  let touchFrom = null;
 
   function itemProps(i) {
     return {
-      draggable:true,
-      'data-sortidx':i,
-      onDragStart:()=>onDragStart(i),
-      onDragEnter:()=>onDragEnter(i),
-      onDragEnd,
-      onDragOver:e=>e.preventDefault(),
-      onTouchStart:e=>onTouchStart(i,e),
-      onTouchEnd:e=>onTouchEnd(i,e),
-      style:{cursor:'grab'},
+      draggable: true,
+      'data-sortidx': String(i),
+      onDragStart: () => { dragFrom = i; },
+      onDragEnter: () => { dragTo = i; },
+      onDragOver: e => e.preventDefault(),
+      onDragEnd: () => {
+        if(dragFrom !== null && dragTo !== null && dragFrom !== dragTo) {
+          const next = [...items];
+          const [moved] = next.splice(dragFrom, 1);
+          next.splice(dragTo, 0, moved);
+          setItems(next);
+        }
+        dragFrom = null; dragTo = null;
+      },
+      onTouchStart: e => { touchFrom = i; },
+      onTouchEnd: e => {
+        const t = e.changedTouches[0];
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        const card = el && el.closest('[data-sortidx]');
+        const to = card ? parseInt(card.getAttribute('data-sortidx')) : null;
+        if(to !== null && to !== touchFrom) {
+          const next = [...items];
+          const [moved] = next.splice(touchFrom, 1);
+          next.splice(to, 0, moved);
+          setItems(next);
+        }
+        touchFrom = null;
+      },
     };
   }
-
-  return {itemProps};
+  return { itemProps };
 }
 
 //  -- Main App -----------------------------------------------
@@ -1664,7 +1643,6 @@ function App(){
   },[]);
   const [mode,setMode]       = useState("worker");
   const [currentUser,setCurrentUser] = useState(null);
-  const [dragState,setDragState]     = useState({type:null,fromIdx:null});
   const [receiptSheet,setReceiptSheet] = useState(null);
   const [toast,setToast]               = useState(null); // {msg, color, empColor}
   const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
@@ -1868,7 +1846,7 @@ function App(){
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}},
 
         (()=>{
-          const {itemProps:empItemProps} = useDragSort(activeEmps, next=>setEmps(p=>{ const archived=p.filter(e=>e.archived); return [...next,...archived]; }), 'emp');
+          const {itemProps:empItemProps} = makeDragSort(activeEmps, next=>setEmps(p=>{ const archived=p.filter(e=>e.archived); return [...next,...archived]; }));
           return activeEmps.map((emp,empIdx)=>{
           const isClockedIn=active.some(e=>e.empId===emp.id);
           return h("div",{key:emp.id,...empItemProps(empIdx),style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22",cursor:"grab"}},
@@ -2054,14 +2032,12 @@ function App(){
             sorted.forEach(([name],i)=>{ clientColorMap[name]=CLIENT_COLORS[i%CLIENT_COLORS.length]; });
             // Drag groups (clients) — keeps all projects together
             const groupNames = sorted.map(([name])=>name);
-            const {itemProps:grpItemProps} = useDragSort(groupNames, newOrder=>{
-              // Reorder projs array to match new group order
+            const {itemProps:grpItemProps} = makeDragSort(groupNames, newOrder=>{
               const reordered = newOrder.flatMap(gname=>projs.filter(p=>(p.client||"No Client")===gname));
-              // Keep any projs not in filtered list at end
               const filteredIds = new Set(reordered.map(p=>p.id));
               const rest = projs.filter(p=>!filteredIds.has(p.id));
               setProjs([...reordered,...rest]);
-            }, 'grp');
+            });
 
             return sorted.flatMap(([clientName,clientProjs],grpIdx)=>{
               const cc = clientName==="No Client"?T.dim:clientColorMap[clientName];

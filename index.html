@@ -2035,7 +2035,7 @@ function App(){
               ...allGroupNames.filter(n=>!clientOrder.includes(n)).sort((a,b)=>a.localeCompare(b))
             ];
             const sorted = orderedNames.map(name=>[name,groups[name]]);
-            const CLIENT_COLORS=["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5","#BE185D","#0F766E"];
+            const CLIENT_COLORS=["#E63946","#2196F3","#2ECC40","#FF6D00","#9C27B0","#00BCD4","#FFEB3B","#F06292","#1B5E20","#795548"];
             function hashColor(str){ let h=0; for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0;} return CLIENT_COLORS[Math.abs(h)%CLIENT_COLORS.length]; }
             const clientColorMap={};
             sorted.forEach(([name])=>{ clientColorMap[name]=name==="No Client"?T.dim:hashColor(name); });

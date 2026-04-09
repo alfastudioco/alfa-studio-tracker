@@ -1577,6 +1577,69 @@ function getDateWindow(range,offset,customStart,customEnd) {
   return {winStart:null,winEnd:null};
 }
 
+
+//  -- useDragSort --
+// Returns props to attach to each draggable item and the container
+function useDragSort(items, setItems, key) {
+  const dragIdx = React.useRef(null);
+  const dragOverIdx = React.useRef(null);
+
+  function onDragStart(i) {
+    dragIdx.current = i;
+  }
+  function onDragEnter(i) {
+    dragOverIdx.current = i;
+  }
+  function onDragEnd() {
+    const from = dragIdx.current;
+    const to = dragOverIdx.current;
+    if(from===null||to===null||from===to){ dragIdx.current=null; dragOverIdx.current=null; return; }
+    const next = [...items];
+    const [moved] = next.splice(from,1);
+    next.splice(to,0,moved);
+    setItems(next);
+    dragIdx.current=null; dragOverIdx.current=null;
+  }
+
+  // Touch support
+  const touchStartY = React.useRef(null);
+  const touchFromIdx = React.useRef(null);
+  function onTouchStart(i, e) {
+    touchFromIdx.current = i;
+    touchStartY.current = e.touches[0].clientY;
+  }
+  function onTouchEnd(i, e) {
+    // Find element under finger
+    const touch = e.changedTouches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const card = el && el.closest('[data-sortidx]');
+    const toIdx = card ? parseInt(card.getAttribute('data-sortidx')) : null;
+    if(toIdx!==null && toIdx!==touchFromIdx.current){
+      const next = [...items];
+      const [moved] = next.splice(touchFromIdx.current,1);
+      next.splice(toIdx,0,moved);
+      setItems(next);
+    }
+    touchFromIdx.current=null;
+  }
+
+  function itemProps(i) {
+    return {
+      draggable:true,
+      'data-sortidx':i,
+      onDragStart:()=>onDragStart(i),
+      onDragEnter:()=>onDragEnter(i),
+      onDragEnd,
+      onDragOver:e=>e.preventDefault(),
+      onTouchStart:e=>onTouchStart(i,e),
+      onTouchEnd:e=>onTouchEnd(i,e),
+      style:{cursor:'grab'},
+    };
+  }
+
+  return {itemProps};
+}
+
 //  -- Main App -----------------------------------------------
 function App(){
   const [emps,setEmps]       = useState(()=>load("alfa_emps",   DEFAULT_EMPS));
@@ -1600,7 +1663,8 @@ function App(){
     })();
   },[]);
   const [mode,setMode]       = useState("worker");
-  const [currentUser,setCurrentUser] = useState(null); // {pin,name,role}
+  const [currentUser,setCurrentUser] = useState(null);
+  const [dragState,setDragState]     = useState({type:null,fromIdx:null});
   const [receiptSheet,setReceiptSheet] = useState(null);
   const [toast,setToast]               = useState(null); // {msg, color, empColor}
   const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
@@ -1803,9 +1867,11 @@ function App(){
       // Employee cards — 2 columns, always visible
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}},
 
-        activeEmps.map(emp=>{
+        (()=>{
+          const {itemProps:empItemProps} = useDragSort(activeEmps, next=>setEmps(p=>{ const archived=p.filter(e=>e.archived); return [...next,...archived]; }), 'emp');
+          return activeEmps.map((emp,empIdx)=>{
           const isClockedIn=active.some(e=>e.empId===emp.id);
-          return h("div",{key:emp.id,style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22"}},
+          return h("div",{key:emp.id,...empItemProps(empIdx),style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22",cursor:"grab"}},
             // Name header
             h("div",{style:{padding:"10px 12px",background:emp.color+"18",display:"flex",alignItems:"center",gap:8}},
               h("div",{style:{width:28,height:28,borderRadius:"50%",background:emp.color+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
@@ -1842,7 +1908,7 @@ function App(){
               })
             )
           );
-        })
+        });})()
       ),
 
       emps.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew set up yet.")
@@ -1986,14 +2052,26 @@ function App(){
             const CLIENT_COLORS=["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5","#BE185D","#0F766E"];
             const clientColorMap={};
             sorted.forEach(([name],i)=>{ clientColorMap[name]=CLIENT_COLORS[i%CLIENT_COLORS.length]; });
-            return sorted.flatMap(([clientName,clientProjs])=>{
+            // Drag groups (clients) — keeps all projects together
+            const groupNames = sorted.map(([name])=>name);
+            const {itemProps:grpItemProps} = useDragSort(groupNames, newOrder=>{
+              // Reorder projs array to match new group order
+              const reordered = newOrder.flatMap(gname=>projs.filter(p=>(p.client||"No Client")===gname));
+              // Keep any projs not in filtered list at end
+              const filteredIds = new Set(reordered.map(p=>p.id));
+              const rest = projs.filter(p=>!filteredIds.has(p.id));
+              setProjs([...reordered,...rest]);
+            }, 'grp');
+
+            return sorted.flatMap(([clientName,clientProjs],grpIdx)=>{
               const cc = clientName==="No Client"?T.dim:clientColorMap[clientName];
               return [
-              h("div",{key:"grp-"+clientName,style:{display:"flex",alignItems:"center",gap:8,margin:"8px 0 4px",padding:"0 2px"}},
+              h("div",{key:"grp-"+clientName,...grpItemProps(grpIdx),style:{display:"flex",alignItems:"center",gap:8,margin:"8px 0 4px",padding:"4px 6px",borderRadius:8,cursor:"grab",userSelect:"none",background:"transparent"}},
                 h("div",{style:{width:10,height:10,borderRadius:"50%",background:cc,flexShrink:0}}),
                 h("span",{style:{fontSize:11,fontWeight:700,color:cc,letterSpacing:"0.04em"}},(clientName==="No Client"?"No Client":clientName)),
                 h("div",{style:{flex:1,height:1,background:cc+"33"}}),
-                h("span",{style:{fontSize:10,color:T.dim}},clientProjs.length+" project"+(clientProjs.length!==1?"s":""))
+                h("span",{style:{fontSize:10,color:T.dim}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
+                h("span",{style:{fontSize:10,color:T.dim,marginLeft:4}},"⠿")
               ),
               ...clientProjs.map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
@@ -2002,7 +2080,7 @@ function App(){
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-            return h("div",{key:proj.id,style:{...card,marginBottom:12,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
+                return h("div",{key:proj.id,style:{...card,marginBottom:12,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
 
               // Inline edit form
               isEditing

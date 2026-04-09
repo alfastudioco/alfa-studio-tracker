@@ -1643,6 +1643,7 @@ function App(){
   },[]);
   const [mode,setMode]       = useState("worker");
   const [currentUser,setCurrentUser] = useState(null);
+  const [clientOrder,setClientOrder]   = useState(()=>load("alfa_clientorder",[]));
   const [receiptSheet,setReceiptSheet] = useState(null);
   const [toast,setToast]               = useState(null); // {msg, color, empColor}
   const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
@@ -1714,6 +1715,7 @@ function App(){
   useEffect(()=>{ try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{} },[vendors]);
   useEffect(()=>{ try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{} },[clients]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{} },[clientOrder]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
 
   const done    = entries.filter(e=>e.end);
@@ -2026,17 +2028,19 @@ function App(){
             // Group by client
             const groups={};
             filtered.forEach(p=>{ const k=p.client||"No Client"; if(!groups[k])groups[k]=[]; groups[k].push(p); });
-            const sorted=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0]));
+            // Build sorted using clientOrder state, adding new clients to end
+            const allGroupNames = Object.keys(groups);
+            const orderedNames = [
+              ...clientOrder.filter(n=>allGroupNames.includes(n)),
+              ...allGroupNames.filter(n=>!clientOrder.includes(n)).sort((a,b)=>a.localeCompare(b))
+            ];
+            const sorted = orderedNames.map(name=>[name,groups[name]]);
             const CLIENT_COLORS=["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5","#BE185D","#0F766E"];
             const clientColorMap={};
             sorted.forEach(([name],i)=>{ clientColorMap[name]=CLIENT_COLORS[i%CLIENT_COLORS.length]; });
-            // Drag groups (clients) — keeps all projects together
-            const groupNames = sorted.map(([name])=>name);
-            const {itemProps:grpItemProps} = makeDragSort(groupNames, newOrder=>{
-              const reordered = newOrder.flatMap(gname=>projs.filter(p=>(p.client||"No Client")===gname));
-              const filteredIds = new Set(reordered.map(p=>p.id));
-              const rest = projs.filter(p=>!filteredIds.has(p.id));
-              setProjs([...reordered,...rest]);
+            // Drag groups — saves order to state
+            const {itemProps:grpItemProps} = makeDragSort(orderedNames, newOrder=>{
+              setClientOrder(newOrder);
             });
 
             return sorted.flatMap(([clientName,clientProjs],grpIdx)=>{
@@ -2049,14 +2053,15 @@ function App(){
                 h("span",{style:{fontSize:10,color:T.dim}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
                 h("span",{style:{fontSize:10,color:T.dim,marginLeft:4}},"⠿")
               ),
-              ...clientProjs.map(proj=>{
+              h("div",{key:"grid-"+clientName,style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:10,marginBottom:8}},
+                ...clientProjs.map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-                return h("div",{key:proj.id,style:{...card,marginBottom:12,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
+                return h("div",{key:proj.id,style:{...card,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
 
               // Inline edit form
               isEditing
@@ -2166,6 +2171,7 @@ function App(){
                   )
             );
           }),
+          ) // close grid div
           ]; // close inner array
             }); // close flatMap
           })() // close IIFE

@@ -1912,7 +1912,7 @@ function App(){
         )
       ),
 
-      h("div",{style:{padding:"16px 16px 80px",maxWidth:680,margin:"0 auto"}},
+      h("div",{style:{padding:"16px 16px 80px",maxWidth:1400,margin:"0 auto"}},
 
         // PROJECTS TAB
         adminTab==="projects"&&h("div",null,
@@ -2036,8 +2036,9 @@ function App(){
             ];
             const sorted = orderedNames.map(name=>[name,groups[name]]);
             const CLIENT_COLORS=["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5","#BE185D","#0F766E"];
+            function hashColor(str){ let h=0; for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0;} return CLIENT_COLORS[Math.abs(h)%CLIENT_COLORS.length]; }
             const clientColorMap={};
-            sorted.forEach(([name],i)=>{ clientColorMap[name]=CLIENT_COLORS[i%CLIENT_COLORS.length]; });
+            sorted.forEach(([name])=>{ clientColorMap[name]=name==="No Client"?T.dim:hashColor(name); });
             // Drag groups — saves order to state
             const {itemProps:grpItemProps} = makeDragSort(orderedNames, newOrder=>{
               setClientOrder(newOrder);

@@ -2145,6 +2145,7 @@ function App(){
                           hrs>0&&stat("Hours",fmtHrs(hrs),T.amber),
                           laborCost>0&&stat("Labor",fmtCost(laborCost),T.green),
                           ct.total>0&&stat("Materials",fmtCost(ct.total),T.blue,e=>{e.stopPropagation();setCogsSheet(proj.id);}),
+                          salePrice>0&&stat("Sale",fmtCost(salePrice),T.text),
                           profit!==null&&stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red)
                         );
                       })()

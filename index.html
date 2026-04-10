@@ -1706,6 +1706,7 @@ function App(){
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
   const [confirmEmp,setConfirmEmp]     = useState(null);
   const [confirmVendor,setConfirmVendor] = useState(null);
+  const [expandVendor,setExpandVendor]   = useState(null);
   const [vendorRange,setVendorRange] = useState("all"); // "all"|"month"|"year"|"custom"
   const [vendorOffset,setVendorOffset] = useState(0);
   const [vendorCustomStart,setVendorCustomStart] = useState("");
@@ -1743,6 +1744,15 @@ function App(){
   useEffect(()=>{ try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{} },[cogs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{} },[vendors]);
   useEffect(()=>{ try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{} },[clients]);
+
+  // Auto-create client profiles for any project client name not yet in clients list
+  useEffect(()=>{
+    const existingNames = new Set(clients.map(c=>c.name.toLowerCase().trim()));
+    const missingNames = [...new Set(projs.map(p=>p.client).filter(n=>n&&n.trim()&&!existingNames.has(n.toLowerCase().trim())))];
+    if(missingNames.length>0){
+      setClients(p=>[...p,...missingNames.map(n=>({id:Date.now()+Math.random(),name:n.trim(),phone:"",email:"",address:"",notes:""}))]);
+    }
+  },[projs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
   useEffect(()=>{ try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{} },[clientOrder]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
@@ -2361,7 +2371,7 @@ function App(){
           const {winStart,winEnd} = getDateWindow(vendorRange,vendorOffset,vendorCustomStart,vendorCustomEnd);
 
           // Flatten all cogs items, filter by date window
-          const allItems=Object.values(cogs).flat();
+          const allItems=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,_projId:+projId})));
           const filtItems=winStart?allItems.filter(i=>{ const d=new Date(i.date).getTime(); return d>=winStart&&d<winEnd; }):allItems;
 
           // Total spent per vendor
@@ -2388,23 +2398,46 @@ function App(){
             // Vendor list
             vendors.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No vendors yet. Add one above."),
             vendors
-              .map(v=>({...v, spent: vendorTotals[v.name]||0}))
+              .map(v=>({...v, spent: vendorTotals[v.name]||0, invoices: filtItems.filter(i=>i.vendor===v.name).sort((a,b)=>b.date.localeCompare(a.date))}))
               .sort((a,b)=>b.spent-a.spent)
-              .map(v=>
-                h("div",{key:v.id,style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",marginBottom:8}},
-                  h("div",{style:{display:"flex",alignItems:"center",gap:10}},
-                    h("input",{value:v.name,onChange:e=>setVendors(p=>p.map(x=>x.id===v.id?{...x,name:e.target.value}:x)),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
-                    v.spent>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.blue,flexShrink:0}},fmtCost(v.spent)),
-                    h("button",{onClick:()=>setConfirmVendor(v),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"0 4px",lineHeight:1}},"×")
-                  ),
-                  v.spent>0&&h("div",{style:{marginTop:8}},
-                    h("div",{style:{background:T.faint,borderRadius:4,height:5}},
-                      h("div",{style:{background:T.blue,borderRadius:4,height:5,width:Math.round(v.spent/grandTotal*100)+"%",transition:"width .4s"}})
+              .map(v=>{
+                const isOpen = expandVendor===v.id;
+                return h("div",{key:v.id,style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,marginBottom:8,overflow:"hidden"}},
+                  // Vendor header — tap to expand
+                  h("div",{style:{padding:"12px 14px"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:v.spent>0?8:0}},
+                      h("input",{value:v.name,onClick:e=>e.stopPropagation(),onChange:e=>setVendors(p=>p.map(x=>x.id===v.id?{...x,name:e.target.value}:x)),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
+                      v.spent>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.blue,flexShrink:0}},fmtCost(v.spent)),
+                      v.invoices.length>0&&h("button",{onClick:()=>setExpandVendor(isOpen?null:v.id),style:{background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,color:T.blue,cursor:"pointer",fontSize:11,fontWeight:600,padding:"3px 8px",flexShrink:0}},isOpen?"▲ Hide":"▼ "+v.invoices.length+" invoice"+(v.invoices.length!==1?"s":"")),
+                      h("button",{onClick:()=>setConfirmVendor(v),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"0 4px",lineHeight:1}},"×")
                     ),
-                    h("div",{style:{fontSize:10,color:T.dim,marginTop:3}},Math.round(v.spent/grandTotal*100)+"% of total · "+(filtItems.filter(i=>i.vendor===v.name).length)+" invoice"+(filtItems.filter(i=>i.vendor===v.name).length!==1?"s":""))
+                    v.spent>0&&grandTotal>0&&h("div",null,
+                      h("div",{style:{background:T.faint,borderRadius:4,height:4}},
+                        h("div",{style:{background:T.blue,borderRadius:4,height:4,width:Math.round(v.spent/grandTotal*100)+"%",transition:"width .4s"}})
+                      ),
+                      h("div",{style:{fontSize:10,color:T.dim,marginTop:3}},Math.round(v.spent/grandTotal*100)+"% of total")
+                    )
+                  ),
+                  // Invoices list — expandable
+                  isOpen&&h("div",{style:{borderTop:"1px solid "+T.line}},
+                    v.invoices.map(inv=>
+                      h("div",{key:inv.id,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderBottom:"1px solid "+T.line,background:T.faint}},
+                        h("div",{style:{flex:1,minWidth:0}},
+                          h("div",{style:{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},inv.desc||"—"),
+                          h("div",{style:{fontSize:10,color:T.dim,marginTop:1}},
+                            [inv.invoiceNo?"#"+inv.invoiceNo:null, inv.date, projs.find(p=>p.id===inv._projId||Object.entries(cogs).find(([pid,items])=>items.some(i=>i.id===inv.id)))?.[0]].filter(Boolean).join(" · ")
+                          )
+                        ),
+                        h("span",{style:{fontSize:13,fontWeight:700,color:T.blue,flexShrink:0}},fmtCost(+inv.amount||0))
+                      )
+                    ),
+                    h("div",{style:{padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+                      h("span",{style:{fontSize:11,color:T.sub}},v.invoices.length+" invoice"+(v.invoices.length!==1?"s":"")),
+                      h("span",{style:{fontSize:13,fontWeight:700,color:T.blue}},fmtCost(v.spent))
+                    )
                   )
-                )
-              )
+                );
+              })
           );
         })()
       ),

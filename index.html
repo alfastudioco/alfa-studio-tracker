@@ -2194,7 +2194,7 @@ function App(){
                           // Left group — always show
                           stat("Hours",    hrs>0?fmtHrs(hrs):null,          T.amber),
                           stat("Labor",    laborCost>0?fmtCost(laborCost):null, T.green),
-                          stat("Materials",ct.total>0?fmtCost(ct.total):null,  T.blue, ct.total>0?e=>{e.stopPropagation();setCogsSheet(proj.id);}:null),
+                          stat("Materials",ct.total>0?fmtCost(ct.total):null,  T.blue, e=>{e.stopPropagation();setCogsSheet(proj.id);}),
                           // Divider
                           h("div",{style:{width:1,background:T.border,borderRadius:2,margin:"0 2px",flexShrink:0}}),
                           // Right group — always show

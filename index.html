@@ -1707,6 +1707,7 @@ function App(){
   const [confirmEmp,setConfirmEmp]     = useState(null);
   const [confirmVendor,setConfirmVendor] = useState(null);
   const [expandVendor,setExpandVendor]   = useState(null);
+  const [editSaleProj,setEditSaleProj]   = useState(null); // projId being edited inline
   const [vendorRange,setVendorRange] = useState("all"); // "all"|"month"|"year"|"custom"
   const [vendorOffset,setVendorOffset] = useState(0);
   const [vendorCustomStart,setVendorCustomStart] = useState("");
@@ -2182,22 +2183,46 @@ function App(){
                         const profit=salePrice>0?salePrice-totalCost:null;
                         if(!hrs&&!laborCost&&!ct.total&&!salePrice) return null;
                         const stat=(label,val,color,onClick)=>h("div",{onClick,
-                          style:{flex:1,background:color+"10",borderRadius:8,padding:"7px 10px",cursor:onClick?"pointer":"default",minWidth:0}},
-                          h("div",{style:{fontSize:10,fontWeight:600,color:color,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},label),
-                          h("div",{style:{fontSize:13,fontWeight:700,color:color}},val)
+                          style:{flex:1,background:val?color+"10":T.faint,borderRadius:8,padding:"7px 10px",cursor:onClick?"pointer":"default",minWidth:0}},
+                          h("div",{style:{fontSize:10,fontWeight:600,color:val?color:T.dim,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},label),
+                          val
+                            ? h("div",{style:{fontSize:13,fontWeight:700,color:color}},val)
+                            : h("div",{style:{fontSize:13,color:T.border,letterSpacing:"0.15em"}},"– –")
                         );
-                        const hasCost = hrs||laborCost||ct.total;
-                        const hasMoney = salePrice||profit!==null;
+                        const empty = val => h("span",{style:{fontSize:13,fontWeight:400,color:T.border,letterSpacing:"0.1em"}},"– –");
                         return h("div",{style:{display:"flex",gap:6,marginTop:8,alignItems:"stretch"}},
-                          // Left group: Hours, Labor, Materials
-                          hrs>0&&stat("Hours",fmtHrs(hrs),T.amber),
-                          laborCost>0&&stat("Labor",fmtCost(laborCost),T.green),
-                          ct.total>0&&stat("Materials",fmtCost(ct.total),T.blue,e=>{e.stopPropagation();setCogsSheet(proj.id);}),
+                          // Left group — always show
+                          stat("Hours",    hrs>0?fmtHrs(hrs):null,          T.amber),
+                          stat("Labor",    laborCost>0?fmtCost(laborCost):null, T.green),
+                          stat("Materials",ct.total>0?fmtCost(ct.total):null,  T.blue, ct.total>0?e=>{e.stopPropagation();setCogsSheet(proj.id);}:null),
                           // Divider
-                          hasCost&&hasMoney&&h("div",{style:{width:1,background:T.border,borderRadius:2,margin:"0 2px",flexShrink:0}}),
-                          // Right group: Sale, Profit
-                          salePrice>0&&stat("Sale",fmtCost(salePrice),T.text),
-                          profit!==null&&stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red)
+                          h("div",{style:{width:1,background:T.border,borderRadius:2,margin:"0 2px",flexShrink:0}}),
+                          // Right group — always show
+                          // Sale tile — clickable inline edit
+                          editSaleProj===proj.id
+                            ? h("div",{style:{flex:1,background:T.faint,borderRadius:8,padding:"5px 8px",minWidth:0},onClick:e=>e.stopPropagation()},
+                                h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},"Sale"),
+                                h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                                  h("span",{style:{fontSize:12,color:T.sub}},"$"),
+                                  h("input",{
+                                    type:"number",min:0,step:0.01,autoFocus:true,
+                                    defaultValue:salePrice||"",
+                                    placeholder:"0.00",
+                                    onBlur:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value}:x));setEditSaleProj(null);},
+                                    onKeyDown:e=>{if(e.key==="Enter"||e.key==="Escape"){setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value}:x));setEditSaleProj(null);}},
+                                    style:{flex:1,background:"transparent",border:"none",borderBottom:"1px solid "+T.border,color:T.text,fontSize:13,fontWeight:600,outline:"none",width:"100%",padding:"1px 0"}
+                                  })
+                                )
+                              )
+                            : h("div",{
+                                onClick:e=>{e.stopPropagation();setEditSaleProj(proj.id);},
+                                style:{flex:1,background:salePrice?T.text+"10":T.faint,borderRadius:8,padding:"7px 10px",cursor:"pointer",minWidth:0}},
+                                h("div",{style:{fontSize:10,fontWeight:600,color:salePrice?T.text:T.dim,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},"Sale"),
+                                salePrice
+                                  ? h("div",{style:{fontSize:13,fontWeight:700,color:T.text}},fmtCost(salePrice))
+                                  : h("div",{style:{fontSize:13,color:T.border,letterSpacing:"0.15em"}},"– –")
+                              ),
+                          profit!==null?stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red):stat("Profit",null,T.green)
                         );
                       })()
                     ),

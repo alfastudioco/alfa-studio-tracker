@@ -1381,13 +1381,42 @@ function ClientsTab({clients,setClients,projs,setProjs,cogs,done,emps,entryCost,
             ),
             clientProjs.length===0&&h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No projects yet."),
             clientProjs.map(p=>{
-              const rev=+p.salePrice||0;
+              const pHrs = done.filter(e=>e.projId===p.id).reduce((s,e)=>s+(e.end-e.start),0);
+              const pLabor = done.filter(e=>e.projId===p.id).reduce((s,e)=>s+entryCost(e),0);
+              const pMats = (cogs[p.id]||[]).reduce((s,i)=>s+(+i.amount||0),0);
+              const pSale = +p.salePrice||0;
+              const pProfit = pSale>0?pSale-(pLabor+pMats):null;
               const sc = {"Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
-              return h("div",{key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid "+T.line}},
-                h("div",{style:{width:6,height:6,borderRadius:"50%",background:sc[p.status]||"#94A3B8",flexShrink:0}}),
-                h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:T.text}},p.name),
-                h("span",{style:{fontSize:11,fontWeight:600,color:sc[p.status]||"#94A3B8"}},p.status),
-                rev>0&&h("span",{style:{fontSize:12,fontWeight:700,color:T.green}},fmtCost(rev))
+              return h("div",{key:p.id,style:{padding:"10px 0",borderBottom:"1px solid "+T.line}},
+                // Project name + status
+                h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:6}},
+                  h("div",{style:{width:6,height:6,borderRadius:"50%",background:sc[p.status]||"#94A3B8",flexShrink:0}}),
+                  h("span",{style:{flex:1,fontSize:13,fontWeight:700,color:T.text}},p.name),
+                  h("span",{style:{fontSize:10,fontWeight:600,color:sc[p.status]||"#94A3B8",background:(sc[p.status]||"#94A3B8")+"18",borderRadius:10,padding:"1px 7px"}},p.status)
+                ),
+                // Stats row
+                (pHrs>0||pLabor>0||pMats>0||pSale>0)&&h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+                  pHrs>0&&h("div",{style:{background:T.amber+"12",borderRadius:6,padding:"4px 8px"}},
+                    h("div",{style:{fontSize:9,color:T.amber,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600}},"Hours"),
+                    h("div",{style:{fontSize:12,fontWeight:700,color:T.amber}},fmtHrs(pHrs))
+                  ),
+                  pLabor>0&&h("div",{style:{background:T.green+"12",borderRadius:6,padding:"4px 8px"}},
+                    h("div",{style:{fontSize:9,color:T.green,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600}},"Labor"),
+                    h("div",{style:{fontSize:12,fontWeight:700,color:T.green}},fmtCost(pLabor))
+                  ),
+                  pMats>0&&h("div",{style:{background:T.blue+"12",borderRadius:6,padding:"4px 8px"}},
+                    h("div",{style:{fontSize:9,color:T.blue,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600}},"Materials"),
+                    h("div",{style:{fontSize:12,fontWeight:700,color:T.blue}},fmtCost(pMats))
+                  ),
+                  pSale>0&&h("div",{style:{background:T.faint,borderRadius:6,padding:"4px 8px"}},
+                    h("div",{style:{fontSize:9,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600}},"Sale"),
+                    h("div",{style:{fontSize:12,fontWeight:700,color:T.text}},fmtCost(pSale))
+                  ),
+                  pProfit!==null&&h("div",{style:{background:(pProfit>=0?T.green:T.red)+"12",borderRadius:6,padding:"4px 8px"}},
+                    h("div",{style:{fontSize:9,color:pProfit>=0?T.green:T.red,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600}},pProfit>=0?"Profit":"Loss"),
+                    h("div",{style:{fontSize:12,fontWeight:700,color:pProfit>=0?T.green:T.red}},(pProfit>=0?"+":"")+fmtCost(pProfit))
+                  )
+                )
               );
             })
           ),

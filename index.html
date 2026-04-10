@@ -2074,10 +2074,16 @@ function App(){
               ...allGroupNames.filter(n=>!clientOrder.includes(n)).sort((a,b)=>a.localeCompare(b))
             ];
             const sorted = orderedNames.map(name=>[name,groups[name]]);
-            const CLIENT_COLORS=["#E63946","#2196F3","#2ECC40","#FF6D00","#9C27B0","#00BCD4","#FFEB3B","#F06292","#1B5E20","#795548"];
-            function hashColor(str){ let h=0; for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i);h|=0;} return CLIENT_COLORS[Math.abs(h)%CLIENT_COLORS.length]; }
+            const CLIENT_COLORS=["#E63946","#2196F3","#2ECC40","#FF6D00","#9C27B0","#00BCD4","#F06292","#1B5E20","#795548","#E91E63"];
             const clientColorMap={};
-            sorted.forEach(([name])=>{ clientColorMap[name]=name==="No Client"?T.dim:hashColor(name); });
+            // Assign colors so no two adjacent clients share the same color (graph coloring)
+            sorted.forEach(([name],i)=>{
+              if(name==="No Client"){ clientColorMap[name]=T.dim; return; }
+              let idx=i%CLIENT_COLORS.length;
+              const prevColor=i>0?clientColorMap[sorted[i-1][0]]:null;
+              while(CLIENT_COLORS[idx]===prevColor){idx=(idx+1)%CLIENT_COLORS.length;}
+              clientColorMap[name]=CLIENT_COLORS[idx];
+            });
             // Drag groups — saves order to state
             const {itemProps:grpItemProps} = makeDragSort(orderedNames, newOrder=>{
               setClientOrder(newOrder);
@@ -2180,10 +2186,16 @@ function App(){
                           h("div",{style:{fontSize:10,fontWeight:600,color:color,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},label),
                           h("div",{style:{fontSize:13,fontWeight:700,color:color}},val)
                         );
-                        return h("div",{style:{display:"flex",gap:6,marginTop:8}},
+                        const hasCost = hrs||laborCost||ct.total;
+                        const hasMoney = salePrice||profit!==null;
+                        return h("div",{style:{display:"flex",gap:6,marginTop:8,alignItems:"stretch"}},
+                          // Left group: Hours, Labor, Materials
                           hrs>0&&stat("Hours",fmtHrs(hrs),T.amber),
                           laborCost>0&&stat("Labor",fmtCost(laborCost),T.green),
                           ct.total>0&&stat("Materials",fmtCost(ct.total),T.blue,e=>{e.stopPropagation();setCogsSheet(proj.id);}),
+                          // Divider
+                          hasCost&&hasMoney&&h("div",{style:{width:1,background:T.border,borderRadius:2,margin:"0 2px",flexShrink:0}}),
+                          // Right group: Sale, Profit
                           salePrice>0&&stat("Sale",fmtCost(salePrice),T.text),
                           profit!==null&&stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red)
                         );

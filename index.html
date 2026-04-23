@@ -1106,8 +1106,104 @@ function NotesLog({projId, projNotes, setProjNotes, currentUser, T, line, faint}
   );
 }
 
+
+//  -- PaymentsPanel --
+function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCost, T, line, faint}) {
+  const pmts = projPayments[projId]||[];
+  const total = pmts.reduce((s,p)=>s+(+p.amount||0),0);
+  const balance = salePrice>0 ? salePrice-total : null;
+  const [form,setForm] = React.useState({amount:"",type:"Deposit",date:new Date().toISOString().slice(0,10),note:""});
+  const [adding,setAdding] = React.useState(false);
+  const [confirmPmt,setConfirmPmt] = React.useState(null);
+
+  const TYPES = ["Deposit","Progress Payment","Final Payment","Other"];
+  const inp = {width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",boxSizing:"border-box"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}},txt);
+
+  function save() {
+    if(!form.amount||!+form.amount) return;
+    const pmt = {id:Date.now(), amount:+form.amount, type:form.type, date:form.date, note:form.note};
+    setProjPayments(p=>({...p,[projId]:[...(p[projId]||[]),pmt]}));
+    setForm({amount:"",type:"Deposit",date:new Date().toISOString().slice(0,10),note:""});
+    setAdding(false);
+  }
+  function remove(id) {
+    setProjPayments(p=>({...p,[projId]:(p[projId]||[]).filter(x=>x.id!==id)}));
+    setConfirmPmt(null);
+  }
+
+  const typeColor = {Deposit:T.blue,"Progress Payment":T.amber,"Final Payment":T.green,Other:T.sub};
+
+  return h("div",{style:{padding:"10px 16px"}},
+    // Summary bar
+    salePrice>0&&h("div",{style:{display:"flex",gap:8,marginBottom:12,padding:"10px 12px",background:faint,borderRadius:8}},
+      h("div",{style:{flex:1}},
+        h("div",{style:{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600,marginBottom:2}},"Sale Price"),
+        h("div",{style:{fontSize:14,fontWeight:700,color:T.text}},fmtCost(salePrice))
+      ),
+      h("div",{style:{flex:1}},
+        h("div",{style:{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600,marginBottom:2}},"Received"),
+        h("div",{style:{fontSize:14,fontWeight:700,color:T.green}},fmtCost(total))
+      ),
+      h("div",{style:{flex:1}},
+        h("div",{style:{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",fontWeight:600,marginBottom:2}},"Owing"),
+        h("div",{style:{fontSize:14,fontWeight:700,color:balance>0?T.red:T.green}},fmtCost(Math.max(0,balance||0)))
+      )
+    ),
+
+    // Payment list
+    pmts.length===0&&!adding&&h("div",{style:{fontSize:12,color:T.dim,marginBottom:10}},"No payments recorded yet."),
+    [...pmts].sort((a,b)=>b.date.localeCompare(a.date)).map(pmt=>
+      h("div",{key:pmt.id,style:{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid "+line}},
+        h("div",{style:{flex:1}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:2}},
+            h("span",{style:{fontSize:11,fontWeight:700,color:typeColor[pmt.type]||T.sub,background:(typeColor[pmt.type]||T.sub)+"15",borderRadius:10,padding:"1px 7px"}},pmt.type),
+            h("span",{style:{fontSize:11,color:T.dim}},pmt.date)
+          ),
+          pmt.note&&h("div",{style:{fontSize:12,color:T.sub}},pmt.note)
+        ),
+        h("span",{style:{fontSize:14,fontWeight:700,color:T.green,flexShrink:0}},fmtCost(+pmt.amount)),
+        h("button",{onClick:()=>setConfirmPmt(pmt),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:15,padding:"0 2px",flexShrink:0}},"×")
+      )
+    ),
+
+    // Add form
+    adding&&h("div",{style:{background:faint,borderRadius:8,padding:10,marginTop:8}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        h("div",null, lbl("Amount ($)"), h("input",{type:"number",min:0,step:0.01,autoFocus:true,placeholder:"0.00",value:form.amount,onChange:e=>setForm(f=>({...f,amount:e.target.value})),style:inp})),
+        h("div",null, lbl("Date"), h("input",{type:"date",value:form.date,onChange:e=>setForm(f=>({...f,date:e.target.value})),style:inp}))
+      ),
+      h("div",{style:{marginBottom:8}}, lbl("Type"),
+        h("select",{value:form.type,onChange:e=>setForm(f=>({...f,type:e.target.value})),style:{...inp,appearance:"none"}},
+          TYPES.map(t=>h("option",{key:t,value:t},t))
+        )
+      ),
+      h("div",{style:{marginBottom:10}}, lbl("Note (optional)"), h("input",{type:"text",placeholder:"e.g. e-transfer, cheque #1234",value:form.note,onChange:e=>setForm(f=>({...f,note:e.target.value})),style:inp})),
+      h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
+        h("button",{onClick:()=>setAdding(false),style:{borderRadius:6,cursor:"pointer",fontSize:12,padding:"6px 12px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+        h("button",{onClick:save,style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"✓ Record Payment")
+      )
+    ),
+
+    !adding&&h("button",{onClick:()=>setAdding(true),style:{marginTop:8,width:"100%",background:T.green+"12",border:"1.5px dashed "+T.green+"44",borderRadius:8,padding:"8px",fontSize:12,fontWeight:600,color:T.green,cursor:"pointer"}},"+ Record Payment"),
+
+    // Confirm delete
+    confirmPmt&&h("div",{onClick:()=>setConfirmPmt(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:300,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:15,fontWeight:700,color:"#1C1917",marginBottom:4}},"Remove payment?"),
+        h("div",{style:{fontSize:13,color:"#78716C",marginBottom:4}},confirmPmt.type+" · "+confirmPmt.date),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.green,marginBottom:16}},fmtCost(+confirmPmt.amount)),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmPmt(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>remove(confirmPmt.id),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Remove")
+        )
+      )
+    )
+  );
+}
+
 //  -- ProjectExpanded --
-function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,
+function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
   activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
   T,secLabel,card,entryCost,projCogsTotals,currentUser,
   setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
@@ -1158,6 +1254,19 @@ function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProj
     // ── Materials / COGS ──
     h(Section,{id:"cogs",label:"Costs",badge:ct.total>0?fmtCost(ct.total):null},
       h(VendorBreakdown,{projId:proj.id,cogs,fmtCost,T,secLabel,line:T.line,faint:T.faint})
+    ),
+
+    // ── Payments ──
+    h(Section,{id:"payments",label:"Payments",
+      badge:(()=>{
+        const pmts=projPayments[proj.id]||[];
+        const total=pmts.reduce((s,p)=>s+(+p.amount||0),0);
+        const sale=+proj.salePrice||0;
+        if(!total&&!sale) return null;
+        if(sale>0) return fmtCost(total)+" of "+fmtCost(sale);
+        return fmtCost(total)+" received";
+      })()},
+      h(PaymentsPanel,{projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T,line:T.line,faint:T.faint})
     ),
 
     // ── Notes log ──
@@ -1660,10 +1769,10 @@ function App(){
   useEffect(()=>{
     (async()=>{
       try {
-        const [e,p,en,cl,vn,cg,pn,co] = await Promise.all([
+        const [e,p,en,cl,vn,cg,pn,co,pp] = await Promise.all([
           dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
           dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
-          dbLoad("projnotes"), dbLoad("clientorder")
+          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments")
         ]);
         if(e&&e.length>0)   setEmps(e);
         if(p&&p.length>0)   setProjs(p);
@@ -1682,6 +1791,11 @@ function App(){
           setProjNotes(pnObj);
         }
         if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
+        if(pp&&pp.length>0){
+          const ppObj={};
+          pp.forEach(i=>{ if(!ppObj[i.projId])ppObj[i.projId]=[]; ppObj[i.projId].push(i); });
+          setProjPayments(ppObj);
+        }
       } catch(err) {
         console.error("Initial load error", err);
       }
@@ -1720,6 +1834,7 @@ function App(){
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [confirmProj,setConfirmProj]   = useState(null);
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
+  const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
   const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
   const [confirmEmp,setConfirmEmp]     = useState(null);
@@ -1741,7 +1856,7 @@ function App(){
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
   // Persist — use ref to skip first render so we don't overwrite Supabase on load
-  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true});
+  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true});
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
@@ -1804,6 +1919,12 @@ function App(){
     }
   },[projs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
+    if(isFirstRender.current.projPayments){isFirstRender.current.projPayments=false;return;}
+    const flat=Object.entries(projPayments).flatMap(([projId,pmts])=>pmts.map(p=>({...p,projId:+projId})));
+    dbSave("projpayments", flat);
+  },[projPayments]);
   useEffect(()=>{ try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{} },[clientOrder]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
 
@@ -2299,7 +2420,7 @@ function App(){
                       })()
                     ),
                     isExp&&h(ProjectExpanded,{
-                      proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,
+                      proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
                       activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
                       T,secLabel,card,entryCost,projCogsTotals,currentUser,
                       setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,

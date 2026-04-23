@@ -2285,15 +2285,18 @@ function App(){
             return sorted.flatMap(([clientName,clientProjs],grpIdx)=>{
               const cc = clientName==="No Client"?T.dim:clientColorMap[clientName];
               return [
-              h("div",{key:"grp-"+clientName,...grpItemProps(grpIdx),
-                style:{display:"flex",alignItems:"center",gap:10,margin:"16px 0 6px",padding:"6px 10px",borderRadius:10,cursor:"grab",userSelect:"none",
-                       background:cc+"10",border:"1.5px solid "+cc+"33"}},
-                h("div",{style:{width:10,height:10,borderRadius:"50%",background:cc,flexShrink:0}}),
-                h("span",{style:{fontSize:13,fontWeight:800,color:cc,letterSpacing:"0.01em",flex:1}},(clientName==="No Client"?"No Client":clientName)),
-                h("span",{style:{fontSize:10,fontWeight:600,color:cc,opacity:0.7}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
-                h("span",{style:{fontSize:12,color:cc,opacity:0.5,marginLeft:2}},"⠿")
-              ),
-              ...clientProjs.map(proj=>{
+              h("div",{key:"grp-"+clientName,
+                style:{borderRadius:12,marginBottom:14,overflow:"hidden",border:"1.5px solid "+cc+"44",boxShadow:"0 2px 10px "+cc+"18"}},
+                // Client header strip — drag handle
+                h("div",{...grpItemProps(grpIdx),style:{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:cc+"15",borderBottom:"1px solid "+cc+"25",cursor:"grab",userSelect:"none"}},
+                  h("div",{style:{width:7,height:7,borderRadius:"50%",background:cc,flexShrink:0}}),
+                  h("span",{style:{fontSize:11,fontWeight:700,color:cc,flex:1}},(clientName==="No Client"?"No Client":clientName)),
+                  h("span",{style:{fontSize:10,color:cc,opacity:0.6}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
+                  h("span",{style:{fontSize:11,color:cc,opacity:0.35,marginLeft:4}},"⠿")
+                ),
+                // Projects nested inside
+                h("div",{style:{padding:"8px 8px 4px",background:T.bg}},
+                  ...clientProjs.map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
@@ -2427,8 +2430,10 @@ function App(){
                       STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown,NotesLog
                     })
                   )
-            );
-          }),
+                );
+              })
+            ) // close projects padding div
+          ) // close group card
           ]; // close inner array
             }); // close flatMap
           })() // close IIFE

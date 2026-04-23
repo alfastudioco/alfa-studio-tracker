@@ -50,7 +50,7 @@ async function dbLoad(table) {
 async function dbSave(table, items) {
   try {
     if (!items || items.length === 0) return;
-    const body = items.map(item => ({id: String(item.id), data: item}));
+    const body = items.map((item,idx) => ({id: String(item.id||item.name||idx), data: item}));
     const r = await fetch(SB_URL+"/rest/v1/"+table, {
       method: "POST",
       mode: "cors",
@@ -79,11 +79,9 @@ async function dbPushAll(emps, projs, entries) {
     dbSave("employees", emps),
     dbSave("projects",  projs),
     dbSave("entries",   entries),
-    dbDelete("employees",   emps.map(x=>String(x.id))),
-    dbDelete("projects",    projs.map(x=>String(x.id))),
-    dbDelete("entries",     entries.map(x=>String(x.id))),
-    dbDelete("clients",     clients.map(x=>String(x.id))),
-    dbDelete("vendors",     vendors.map(x=>String(x.id))),
+    dbDelete("employees", emps.map(x=>String(x.id))),
+    dbDelete("projects",  projs.map(x=>String(x.id))),
+    dbDelete("entries",   entries.map(x=>String(x.id))),
   ]);
 }
 
@@ -1854,14 +1852,21 @@ function App(){
       // ClientOrder as array of objects
       const coArr = clientOrder.map(name=>({id:name,name}));
       await Promise.all([
-        dbSave("employees",  emps),
-        dbSave("projects",   projs),
-        dbSave("entries",    entries),
-        dbSave("clients",    clients),
-        dbSave("vendors",    vendors),
-        dbSave("cogs",       cogsFlat),
-        dbSave("projnotes",  notesFlat),
-        dbSave("clientorder",coArr),
+        dbSave("employees",   emps),
+        dbSave("projects",    projs),
+        dbSave("entries",     entries),
+        dbSave("clients",     clients),
+        dbSave("vendors",     vendors),
+        dbSave("cogs",        cogsFlat),
+        dbSave("projnotes",   notesFlat),
+        dbSave("clientorder", coArr),
+        dbDelete("employees",   emps.map(x=>String(x.id))),
+        dbDelete("projects",    projs.map(x=>String(x.id))),
+        dbDelete("entries",     entries.map(x=>String(x.id))),
+        dbDelete("clients",     clients.map(x=>String(x.id))),
+        dbDelete("vendors",     vendors.map(x=>String(x.id))),
+        dbDelete("cogs",        cogsFlat.map(x=>String(x.id))),
+        dbDelete("projnotes",   notesFlat.map(x=>String(x.id))),
       ]);
     } catch(e) { console.error("manualSync error", e); }
     setSyncing(false);
@@ -2156,12 +2161,13 @@ function App(){
             return sorted.flatMap(([clientName,clientProjs],grpIdx)=>{
               const cc = clientName==="No Client"?T.dim:clientColorMap[clientName];
               return [
-              h("div",{key:"grp-"+clientName,...grpItemProps(grpIdx),style:{display:"flex",alignItems:"center",gap:8,margin:"8px 0 4px",padding:"4px 6px",borderRadius:8,cursor:"grab",userSelect:"none",background:"transparent"}},
+              h("div",{key:"grp-"+clientName,...grpItemProps(grpIdx),
+                style:{display:"flex",alignItems:"center",gap:10,margin:"16px 0 6px",padding:"6px 10px",borderRadius:10,cursor:"grab",userSelect:"none",
+                       background:cc+"10",border:"1.5px solid "+cc+"33"}},
                 h("div",{style:{width:10,height:10,borderRadius:"50%",background:cc,flexShrink:0}}),
-                h("span",{style:{fontSize:11,fontWeight:700,color:cc,letterSpacing:"0.04em"}},(clientName==="No Client"?"No Client":clientName)),
-                h("div",{style:{flex:1,height:1,background:cc+"33"}}),
-                h("span",{style:{fontSize:10,color:T.dim}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
-                h("span",{style:{fontSize:10,color:T.dim,marginLeft:4}},"⠿")
+                h("span",{style:{fontSize:13,fontWeight:800,color:cc,letterSpacing:"0.01em",flex:1}},(clientName==="No Client"?"No Client":clientName)),
+                h("span",{style:{fontSize:10,fontWeight:600,color:cc,opacity:0.7}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
+                h("span",{style:{fontSize:12,color:cc,opacity:0.5,marginLeft:2}},"⠿")
               ),
               ...clientProjs.map(proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));

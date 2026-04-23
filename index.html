@@ -79,9 +79,11 @@ async function dbPushAll(emps, projs, entries) {
     dbSave("employees", emps),
     dbSave("projects",  projs),
     dbSave("entries",   entries),
-    dbDelete("employees", emps.map(x=>String(x.id))),
-    dbDelete("projects",  projs.map(x=>String(x.id))),
-    dbDelete("entries",   entries.map(x=>String(x.id))),
+    dbDelete("employees",   emps.map(x=>String(x.id))),
+    dbDelete("projects",    projs.map(x=>String(x.id))),
+    dbDelete("entries",     entries.map(x=>String(x.id))),
+    dbDelete("clients",     clients.map(x=>String(x.id))),
+    dbDelete("vendors",     vendors.map(x=>String(x.id))),
   ]);
 }
 
@@ -1660,10 +1662,28 @@ function App(){
   useEffect(()=>{
     (async()=>{
       try {
-        const [e,p,en] = await Promise.all([dbLoad("employees"),dbLoad("projects"),dbLoad("entries")]);
-        if(e&&e.length>0)  setEmps(e);
-        if(p&&p.length>0)  setProjs(p);
-        if(en!==null) setEntries(en.length>=0?en:[]);
+        const [e,p,en,cl,vn,cg,pn,co] = await Promise.all([
+          dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
+          dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
+          dbLoad("projnotes"), dbLoad("clientorder")
+        ]);
+        if(e&&e.length>0)   setEmps(e);
+        if(p&&p.length>0)   setProjs(p);
+        if(en!==null)       setEntries(en.length>=0?en:[]);
+        if(cl&&cl.length>0) setClients(cl);
+        if(vn&&vn.length>0) setVendors(vn);
+        if(cg&&cg.length>0){
+          // cogs stored as flat array with projId field, rebuild object
+          const cogsObj={};
+          cg.forEach(i=>{ if(!cogsObj[i.projId])cogsObj[i.projId]=[]; cogsObj[i.projId].push(i); });
+          setCogs(cogsObj);
+        }
+        if(pn&&pn.length>0){
+          const pnObj={};
+          pn.forEach(i=>{ if(!pnObj[i.projId])pnObj[i.projId]=[]; pnObj[i.projId].push(i); });
+          setProjNotes(pnObj);
+        }
+        if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
       } catch(err) {
         console.error("Initial load error", err);
       }
@@ -1723,7 +1743,7 @@ function App(){
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
   // Persist — use ref to skip first render so we don't overwrite Supabase on load
-  const isFirstRender = React.useRef({emps:true, projs:true, entries:true});
+  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true});
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
@@ -1742,9 +1762,37 @@ function App(){
     if(isFirstRender.current.entries){ isFirstRender.current.entries=false; return; }
     dbSave("entries", entries);
   },[entries]);
-  useEffect(()=>{ try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{} },[cogs]);
-  useEffect(()=>{ try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{} },[vendors]);
-  useEffect(()=>{ try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{} },[clients]);
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{}
+    if(isFirstRender.current.cogs){isFirstRender.current.cogs=false;return;}
+    const cogsFlat=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
+    dbSave("cogs", cogsFlat);
+  },[cogs]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{}
+    if(isFirstRender.current.vendors){isFirstRender.current.vendors=false;return;}
+    dbSave("vendors", vendors);
+  },[vendors]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{}
+    if(isFirstRender.current.clients){isFirstRender.current.clients=false;return;}
+    dbSave("clients", clients);
+  },[clients]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{}
+    if(isFirstRender.current.projNotes){isFirstRender.current.projNotes=false;return;}
+    const notesFlat=Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
+    dbSave("projnotes", notesFlat);
+  },[projNotes]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{}
+    if(isFirstRender.current.clientOrder){isFirstRender.current.clientOrder=false;return;}
+    dbSave("clientorder", clientOrder.map(name=>({id:name,name})));
+  },[clientOrder]);
 
   // Auto-create client profiles for any project client name not yet in clients list
   useEffect(()=>{
@@ -1799,7 +1847,22 @@ function App(){
   async function manualSync() {
     setSyncing(true);
     try {
-      await Promise.all([dbSave("employees",emps),dbSave("projects",projs),dbSave("entries",entries)]);
+      // Flatten cogs object to array with projId for storage
+      const cogsFlat = Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
+      // Flatten projNotes object
+      const notesFlat = Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
+      // ClientOrder as array of objects
+      const coArr = clientOrder.map(name=>({id:name,name}));
+      await Promise.all([
+        dbSave("employees",  emps),
+        dbSave("projects",   projs),
+        dbSave("entries",    entries),
+        dbSave("clients",    clients),
+        dbSave("vendors",    vendors),
+        dbSave("cogs",       cogsFlat),
+        dbSave("projnotes",  notesFlat),
+        dbSave("clientorder",coArr),
+      ]);
     } catch(e) { console.error("manualSync error", e); }
     setSyncing(false);
   }

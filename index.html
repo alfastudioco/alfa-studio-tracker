@@ -2300,7 +2300,7 @@ function App(){
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-                return h("div",{key:proj.id,style:{...card,marginBottom:10,borderLeft:"3px solid "+(clientColorMap[proj.client||"No Client"]||SC[proj.status]||T.border),boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},
+                return h("div",{key:proj.id,style:{...card,marginBottom:6,borderLeft:"3px solid "+(SC[proj.status]||T.border),boxShadow:"none",border:"1px solid "+T.border}},
 
               // Inline edit form
               isEditing

@@ -1793,11 +1793,14 @@ function App(){
   },[clientOrder]);
 
   // Auto-create client profiles for any project client name not yet in clients list
+  // Uses deterministic ID from name so no duplicates on reload
   useEffect(()=>{
     const existingNames = new Set(clients.map(c=>c.name.toLowerCase().trim()));
     const missingNames = [...new Set(projs.map(p=>p.client).filter(n=>n&&n.trim()&&!existingNames.has(n.toLowerCase().trim())))];
     if(missingNames.length>0){
-      setClients(p=>[...p,...missingNames.map(n=>({id:Date.now()+Math.random(),name:n.trim(),phone:"",email:"",address:"",notes:""}))]);
+      // Generate stable ID by hashing the name
+      function nameId(str){ let h=5381; for(let i=0;i<str.length;i++)h=((h<<5)+h)+str.charCodeAt(i); return Math.abs(h); }
+      setClients(p=>[...p,...missingNames.map(n=>({id:nameId(n.toLowerCase().trim()),name:n.trim(),phone:"",email:"",address:"",notes:""}))]);
     }
   },[projs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);

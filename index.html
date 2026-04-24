@@ -1775,10 +1775,10 @@ function App(){
   useEffect(()=>{
     (async()=>{
       try {
-        const [e,p,en,cl,vn,cg,pn,co,pp] = await Promise.all([
+        const [e,p,en,cl,vn,cg,pn,co,pp,pd] = await Promise.all([
           dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
           dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
-          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments")
+          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments"), dbLoad("projdetails")
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
         setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
@@ -1803,6 +1803,11 @@ function App(){
           const ppObj={};
           pp.forEach(i=>{ if(!ppObj[i.projId])ppObj[i.projId]=[]; ppObj[i.projId].push(i); });
           setProjPayments(ppObj);
+        }
+        if(pd&&pd.length>0){
+          const pdObj={};
+          pd.forEach(i=>{ pdObj[i.projId]=i; });
+          setProjDetails(pdObj);
         }
       } catch(err) {
         console.error("Initial load error", err);
@@ -1873,7 +1878,7 @@ function App(){
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
   // Persist — use ref to skip first render so we don't overwrite Supabase on load
-  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true});
+  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true, projDetails:true});
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
@@ -1925,7 +1930,12 @@ function App(){
   },[clientOrder]);
 
   // Client profiles are managed manually in the Clients tab
-  useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
+    if(isFirstRender.current.projDetails){isFirstRender.current.projDetails=false;return;}
+    const flat=Object.entries(projDetails).map(([projId,data])=>({id:String(projId),projId:+projId,...data}));
+    dbSave("projdetails", flat);
+  },[projDetails]);
   useEffect(()=>{
     try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
     if(isFirstRender.current.projPayments){isFirstRender.current.projPayments=false;return;}

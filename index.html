@@ -2326,7 +2326,7 @@ function App(){
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
-                return h("div",{key:proj.id,style:{...card,marginBottom:6,borderLeft:"3px solid "+(SC[proj.status]||T.border),boxShadow:"none",border:"1px solid "+T.border}},
+                return h("div",{key:proj.id,style:{...card,marginBottom:6,borderLeft:"3px solid "+cc,boxShadow:"none",border:"1px solid "+cc+"33"}},
 
               // Inline edit form
               isEditing

@@ -1347,7 +1347,8 @@ function ClientsTab({clients,setClients,projs,setProjs,cogs,done,emps,entryCost,
   const [adding,setAdding]             = React.useState(false);
   const [newClient,setNewClient]       = React.useState({name:"",phone:"",email:"",address:"",notes:""});
   const [confirmClient,setConfirmClient] = React.useState(null);
-  const [addingProj,setAddingProj]       = React.useState(null); // client name
+  const [addingProj,setAddingProj]       = React.useState(null);
+  const [assigningProj,setAssigningProj] = React.useState(null); // client name
   const [newProjName,setNewProjName]     = React.useState("");
   const [newProjStatus,setNewProjStatus] = React.useState("Not Started");
 
@@ -1487,14 +1488,25 @@ function ClientsTab({clients,setClients,projs,setProjs,cogs,done,emps,entryCost,
           h("div",{style:{padding:"10px 16px",borderBottom:"1px solid "+T.line}},
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
               h("div",{style:secLabel},"Projects"),
-              h("button",{
-                onClick:()=>{
-                  setPf({name:"",client:client.name,status:"Not Started",deadline:"",assignedTo:[],salePrice:""});
-                  setEditingProj("new");
-                  setAdminTab("projects");
-                },
-                style:{fontSize:11,fontWeight:700,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}
-              },"+ New Project")
+              h("div",{style:{display:"flex",gap:6}},
+                h("button",{onClick:()=>setAssigningProj(assigningProj===client.name?null:client.name),style:{fontSize:11,fontWeight:700,color:T.green,background:T.green+"12",border:"1px solid "+T.green+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}},"↗ Assign"),
+                h("button",{onClick:()=>{setPf({name:"",client:client.name,status:"Not Started",deadline:"",assignedTo:[],salePrice:""});setEditingProj("new");setAdminTab("projects");},style:{fontSize:11,fontWeight:700,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}},"+ New")
+              )
+            ),
+            // Assign existing project dropdown
+            assigningProj===client.name&&h("div",{style:{marginBottom:8,background:T.faint,borderRadius:8,padding:8}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,marginBottom:6}},"Assign existing project to "+client.name+":"),
+              h("div",{style:{display:"flex",flexDirection:"column",gap:4,maxHeight:160,overflowY:"auto"}},
+                projs.filter(p=>p.client!==client.name&&p.client!==undefined).map(p=>
+                  h("div",{key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.surf,borderRadius:6,border:"1px solid "+T.border,cursor:"pointer"},
+                    onClick:()=>{setProjs(ps=>ps.map(x=>x.id===p.id?{...x,client:client.name}:x));setAssigningProj(null);}},
+                    h("span",{style:{flex:1,fontSize:12,fontWeight:600,color:T.text}},p.name),
+                    p.client&&h("span",{style:{fontSize:10,color:T.dim}},"from: "+p.client),
+                    h("span",{style:{fontSize:11,color:T.green,fontWeight:700}}),"Assign →"
+                  )
+                ),
+                projs.filter(p=>p.client!==client.name).length===0&&h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No other projects to assign.")
+              )
             ),
             clientProjs.length===0&&h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No projects yet."),
             clientProjs.map(p=>{
@@ -1979,14 +1991,20 @@ function App(){
   useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
 
   const done    = entries.filter(e=>e.end);
-  // Auto-close any entries open longer than 14 hours
+  // Auto-fix entries: close stale open entries AND cap closed entries over 24h
   React.useEffect(()=>{
-    const cutoff = Date.now() - 14*60*60*1000;
-    const stale = entries.filter(e=>!e.end && e.start<cutoff);
-    if(stale.length>0){
-      setEntries(p=>p.map(e=>(!e.end&&e.start<cutoff)?{...e,end:e.start+8*60*60*1000}:e));
-    }
-  },[]);
+    const MAX_MS = 24*60*60*1000; // 24 hours max — anything longer is a forgotten clock-in
+    const cutoff = Date.now() - MAX_MS;
+    let needsFix = false;
+    const fixed = entries.map(e=>{
+      // Close stuck open entries
+      if(!e.end && e.start<cutoff){ needsFix=true; return {...e,end:e.start+8*60*60*1000}; }
+      // Cap closed entries that are impossibly long
+      if(e.end && (e.end-e.start)>MAX_MS){ needsFix=true; return {...e,end:e.start+8*60*60*1000}; }
+      return e;
+    });
+    if(needsFix) setEntries(fixed);
+  },[entries.length]);
 
   const active  = entries.filter(e=>!e.end);
   const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);

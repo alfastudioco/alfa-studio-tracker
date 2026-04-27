@@ -142,6 +142,9 @@ const DEFAULT_ENTRIES=[
 ];
 
 //  -- Helpers ------------------------------------------------
+// Deduplicate array by name (case insensitive)
+function dedupByName(arr){ const seen=new Set(); return arr.filter(x=>{ const k=(x.name||"").toLowerCase().trim(); if(seen.has(k))return false; seen.add(k); return true; }); }
+
 function fmtHrs(ms){
   const h=ms/3600000;
   if(h<0.017)return"—";
@@ -1762,6 +1765,33 @@ function makeDragSort(items, setItems) {
   return { itemProps };
 }
 
+
+//  -- LiveClock --
+function LiveClock({T}) {
+  const [now, setNow] = React.useState(new Date());
+  React.useEffect(()=>{
+    const t = setInterval(()=>setNow(new Date()), 1000);
+    return ()=>clearInterval(t);
+  },[]);
+  const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const day = days[now.getDay()];
+  const date = now.toLocaleDateString([],{month:"long",day:"numeric",year:"numeric"});
+  const time = now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  return h("div",{style:{
+    position:"sticky",top:0,zIndex:50,
+    background:T.text,
+    padding:"10px 20px",
+    display:"flex",alignItems:"center",justifyContent:"space-between",
+    boxShadow:"0 2px 12px rgba(0,0,0,0.2)"
+  }},
+    h("div",null,
+      h("div",{style:{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:1}},"Today is"),
+      h("div",{style:{fontSize:16,fontWeight:800,color:"#FFF"}},day+", "+date)
+    ),
+    h("div",{style:{fontSize:22,fontWeight:700,color:"#FFF",fontVariantNumeric:"tabular-nums",letterSpacing:"0.02em"}},time)
+  );
+}
+
 //  -- Main App -----------------------------------------------
 function App(){
   const [emps,setEmps]       = useState(DEFAULT_EMPS);
@@ -1784,7 +1814,7 @@ function App(){
         setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
         setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
         setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
-        if(cl&&cl.length>0) setClients(cl);
+        if(cl&&cl.length>0) setClients(dedupByName(cl));
         else { const lc=load("alfa_clients",[]); if(lc.length>0) setClients(lc); }
         if(vn&&vn.length>0) setVendors(vn);
         else { const lv=load("alfa_vendors",[]); if(lv.length>0) setVendors(lv); }
@@ -1911,9 +1941,12 @@ function App(){
   },[vendors]);
 
   useEffect(()=>{
-    try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{}
+    const deduped = dedupByName(clients);
+    // If duplicates found, clean them up silently
+    if(deduped.length < clients.length){ setClients(deduped); return; }
+    try{localStorage.setItem("alfa_clients",JSON.stringify(deduped));}catch{}
     if(isFirstRender.current.clients){isFirstRender.current.clients=false;return;}
-    dbSave("clients", clients);
+    dbSave("clients", deduped);
   },[clients]);
 
   useEffect(()=>{
@@ -1946,6 +1979,15 @@ function App(){
   useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
 
   const done    = entries.filter(e=>e.end);
+  // Auto-close any entries open longer than 14 hours
+  React.useEffect(()=>{
+    const cutoff = Date.now() - 14*60*60*1000;
+    const stale = entries.filter(e=>!e.end && e.start<cutoff);
+    if(stale.length>0){
+      setEntries(p=>p.map(e=>(!e.end&&e.start<cutoff)?{...e,end:e.start+8*60*60*1000}:e));
+    }
+  },[]);
+
   const active  = entries.filter(e=>!e.end);
   const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);
   const activeProjs = projs.filter(p=>p.status!=="Completed");
@@ -2082,7 +2124,9 @@ function App(){
     ),
 
     // ═══ WORKER VIEW ═══
-    mode==="worker"&&h("div",{style:{padding:"16px 16px 40px",maxWidth:1200,margin:"0 auto"}},
+    mode==="worker"&&h("div",null,
+      h(LiveClock,{T}),
+      h("div",{style:{padding:"16px 16px 40px",maxWidth:1200,margin:"0 auto"}},
 
       // Active banner
       active.length>0&&h("div",{style:{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:12,padding:"12px 16px",marginBottom:16}},
@@ -2147,6 +2191,7 @@ function App(){
       ),
 
       emps.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew set up yet.")
+      )
     ),
 
     // ═══ ADMIN VIEW ═══

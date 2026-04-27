@@ -2214,6 +2214,8 @@ function App(){
 
     // ═══ ADMIN VIEW ═══
     mode==="admin"&&h("div",null,
+      // Date/time bar
+      h(LiveClock,{T}),
       // Admin tabs
       h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px",position:"sticky",top:0,zIndex:50,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},  
         [["projects","Projects"],["crew","Crew"],["clients","Clients"],["vendors","Vendors"],["payroll","Payroll"]].filter(([t])=>!currentUser||((ROLE_TABS[currentUser.role]||[]).includes(t))).map(([t,l])=>

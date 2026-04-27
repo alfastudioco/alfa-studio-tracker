@@ -2217,7 +2217,7 @@ function App(){
       // Date/time bar
       h(LiveClock,{T}),
       // Admin tabs
-      h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px",position:"sticky",top:0,zIndex:50,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},  
+      h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px",position:"sticky",top:52,zIndex:49,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},  
         [["projects","Projects"],["crew","Crew"],["clients","Clients"],["vendors","Vendors"],["payroll","Payroll"]].filter(([t])=>!currentUser||((ROLE_TABS[currentUser.role]||[]).includes(t))).map(([t,l])=>
           h("button",{key:t,onClick:()=>setAdminTab(t),style:{background:"none",border:"none",borderBottom:adminTab===t?"2px solid "+T.text:"2px solid transparent",color:adminTab===t?T.text:T.sub,padding:"12px 16px",cursor:"pointer",fontSize:13,fontWeight:adminTab===t?700:500,marginBottom:-1}},l)
         )

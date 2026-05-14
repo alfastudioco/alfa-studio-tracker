@@ -2008,7 +2008,7 @@ function App(){
 
   const active  = entries.filter(e=>!e.end);
   const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);
-  const activeProjs = projs.filter(p=>p.status!=="Completed");
+  const activeProjs = projs.filter(p=>p.status!=="Completed"&&p.status!=="On Hold");
   const activeEmps = emps.filter(e=>!e.archived);
   const archivedEmps = emps.filter(e=>e.archived);
 
@@ -2093,7 +2093,13 @@ function App(){
     else setProjs(p=>p.map(x=>x.id===projSheet.id?{...x,...pf}:x));
     setProjSheet(null);
   }
-  function delProj(id){setProjs(p=>p.filter(x=>x.id!==id));setEntries(p=>p.filter(e=>e.projId!==id));}
+  function delProj(id){
+    setProjs(p=>p.filter(x=>x.id!==id));
+    setEntries(p=>p.filter(e=>e.projId!==id));
+    // Delete from Supabase immediately
+    fetch(SB_URL+"/rest/v1/projects?id=eq."+String(id),{method:"DELETE",mode:"cors",headers:SB_HEADERS}).catch(e=>console.error("delProj supabase",e));
+    fetch(SB_URL+"/rest/v1/entries?id=in.("+entries.filter(e=>e.projId===id).map(e=>String(e.id)).join(",")+")",{method:"DELETE",mode:"cors",headers:SB_HEADERS}).catch(()=>{});
+  }
   function togAssign(id){setPf(f=>({...f,assignedTo:f.assignedTo.includes(id)?f.assignedTo.filter(i=>i!==id):[...f.assignedTo,id]}));}
   function saveLog(){
     const{empId,projId,hours,date}=lf;

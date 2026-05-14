@@ -918,6 +918,8 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
   }
 
   // File handling — store as base64 in state
+  const [viewingFile, setViewingFile] = React.useState(null);
+
   async function handleFile(e) {
     const file = e.target.files[0];
     if(!file) return;
@@ -1015,8 +1017,7 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
             h("div",{style:{fontSize:11,color:T.dim}},f.date)
           ),
           // View button for images
-          f.type.startsWith("image")&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"View"),
-          f.type==="application/pdf"&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"Open"),
+          (f.type.startsWith("image")||f.type==="application/pdf")&&h("button",{onClick:()=>setViewingFile(f),style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
           h("button",{onClick:()=>removeFile(f.id),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
         )
       )
@@ -1284,6 +1285,24 @@ function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProj
     h(Section,{id:"details",label:"Selections & Photos",
       badge:hasDetails||hasFiles?([(hasDetails?"Selections":""),hasFiles?(details.files.length+" file"+(details.files.length!==1?"s":"")):""].filter(Boolean).join(" · ")):null},
       h(ProjectDetails,{projId:proj.id,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel})
+    ),
+
+    // File viewer modal
+    viewingFile&&h("div",{onClick:()=>setViewingFile(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{width:"100%",maxWidth:900,maxHeight:"90vh",display:"flex",flexDirection:"column",borderRadius:12,overflow:"hidden",background:"#1C1917"}},
+        // Header
+        h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.1)"}},
+          h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:"#FFF",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},viewingFile.name),
+          h("span",{style:{fontSize:11,color:"rgba(255,255,255,0.4)"}},viewingFile.date),
+          h("button",{onClick:()=>setViewingFile(null),style:{background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:20,cursor:"pointer",padding:"0 4px",flexShrink:0}},"×")
+        ),
+        // Content
+        h("div",{style:{flex:1,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:16,minHeight:200}},
+          viewingFile.type.startsWith("image")
+            ? h("img",{src:viewingFile.data,style:{maxWidth:"100%",maxHeight:"75vh",objectFit:"contain",borderRadius:8}})
+            : h("iframe",{src:viewingFile.data,style:{width:"100%",height:"75vh",border:"none",borderRadius:8}})
+        )
+      )
     )
   );
 }
@@ -1586,6 +1605,8 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
   const [saved, setSaved] = React.useState(false);
   const inp = {width:"100%",background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"};
   const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
+
+  const [viewingFile, setViewingFile] = React.useState(null);
 
   async function handleFile(e) {
     const file = e.target.files[0];

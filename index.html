@@ -1242,7 +1242,7 @@ function ProjectExpanded({proj,projs,emps,done,active,cogs,setCogs,projDetails,s
     // ── Quick actions row ──
     h("div",{style:{padding:"10px 16px",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",borderBottom:"1px solid "+T.line}},
       // Status selector — use live status from projs array
-      (()=>{ const liveProj=projs.find(x=>x.id===proj.id)||proj; return h("select",{value:liveProj.status,onChange:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x));setProjFilter("All");},style:{background:(SC[liveProj.status]||"#94A3B8")+"18",color:SC[liveProj.status]||"#94A3B8",border:"1px solid "+(SC[liveProj.status]||"#94A3B8")+"44",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
+      (()=>{ const liveProj=projs.find(x=>x.id===proj.id)||proj; return h("select",{value:liveProj.status,onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x)),style:{background:(SC[liveProj.status]||"#94A3B8")+"18",color:SC[liveProj.status]||"#94A3B8",border:"1px solid "+(SC[liveProj.status]||"#94A3B8")+"44",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
         STATUSES.map(s=>h("option",{key:s,value:s},s))
       ); })(),
       h("div",{style:{flex:1}}),
@@ -2879,7 +2879,7 @@ function App(){
                       ),
                       // Status badge + deadline + crew
                       h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}},
-                        h("span",{style:{fontSize:10,fontWeight:700,color:SC[proj.status],background:SC[proj.status]+"18",borderRadius:10,padding:"2px 8px"}},proj.status),
+                        (()=>{ const s=(projs.find(x=>x.id===proj.id)||proj).status; return h("span",{style:{fontSize:10,fontWeight:700,color:SC[s],background:SC[s]+"18",borderRadius:10,padding:"2px 8px"}},s); })(),
                         proj.deadline&&h("span",{style:{fontSize:10,color:T.dim}},"Due "+proj.deadline),
                         crew.map(e=>h("span",{key:e.id,style:{fontSize:10,color:e.color,fontWeight:700}},e.name))
                       ),

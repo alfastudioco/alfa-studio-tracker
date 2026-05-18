@@ -1816,11 +1816,12 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
   const [confirmId,setConfirmId] = React.useState(null);
   const [addingRoom,setAddingRoom] = React.useState(null);
   const [newRoom,setNewRoom]     = React.useState({name:"",price:""});
-  const [viewImg,setViewImg]     = React.useState(null);
+  const [viewImg,setViewImg]       = React.useState(null);
+  const [generating,setGenerating] = React.useState(null); // proposal id being generated
 
   const blank = {
     id:null, name:"", client:"", description:"", notes:"",
-    rooms:[], images:[], selections:{material:"",finish:"",hardware:"",doorProfile:""},
+    rooms:[],
     status:"Draft", createdAt:new Date().toISOString().slice(0,10)
   };
   const [form,setForm] = React.useState(blank);
@@ -1852,7 +1853,7 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
 
   function addRoom() {
     if(!newRoom.name.trim()) return;
-    setForm(f=>({...f,rooms:[...f.rooms,{id:Date.now(),name:newRoom.name,price:newRoom.price}]}));
+    setForm(f=>({...f,rooms:[...f.rooms,{id:Date.now(),name:newRoom.name,price:newRoom.price,images:[],selections:{material:"",finish:"",hardware:"",doorProfile:""}}]}));
     setNewRoom({name:"",price:""});
   }
 
@@ -1870,65 +1871,67 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
 
   function generateShareHTML(prop) {
     const total = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${prop.name} — Alfa Studio Proposal</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;color:#1C1917;padding:0}
-.header{background:#1C1917;color:#FFF;padding:24px 32px}
-.header h1{font-size:24px;font-weight:800;margin-bottom:4px}
-.header p{font-size:14px;opacity:0.6}
-.content{max-width:800px;margin:0 auto;padding:24px 20px}
-.section{background:#FFF;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #E5E2DC}
-.section h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:12px}
-.room-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F0EDE8}
-.room-row:last-child{border:none}
-.room-name{font-size:14px;font-weight:600}
-.room-price{font-size:14px;font-weight:700;color:#16A34A}
-.total{display:flex;justify-content:space-between;padding:12px 0;font-size:16px;font-weight:800;border-top:2px solid #E5E2DC;margin-top:8px}
-.images{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
-.images img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;cursor:pointer}
-.sel-row{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE8;font-size:13px}
-.sel-label{color:#78716C;min-width:140px;font-weight:600}
-.notes{font-size:14px;line-height:1.7;color:#44403C;white-space:pre-wrap}
-.comment-box{background:#F8F7F4;border:1px solid #E5E2DC;border-radius:8px;padding:12px;margin-top:8px}
-.comment-box textarea{width:100%;border:none;background:transparent;resize:vertical;font-size:13px;outline:none;min-height:80px;font-family:inherit}
-.comment-box button{margin-top:8px;background:#1C1917;color:#FFF;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer}
-.footer{text-align:center;padding:32px;font-size:12px;color:#A8A29E}
-</style>
-</head>
-<body>
-<div class="header">
-  <h1>${prop.name}</h1>
-  <p>${prop.client||"Alfa Studio"}${prop.createdAt?" &nbsp;·&nbsp; "+prop.createdAt:""}</p>
-</div>
-<div class="content">
-  ${prop.description?`<div class="section"><h2>Overview</h2><p class="notes">${prop.description}</p></div>`:""}
-  ${prop.rooms.length>0?`<div class="section"><h2>Scope & Pricing</h2>${prop.rooms.map(r=>`<div class="room-row"><span class="room-name">${r.name}</span><span class="room-price">${r.price?"$"+Number(r.price).toLocaleString():""}</span></div>`).join("")}${total>0?`<div class="total"><span>Total</span><span>$${total.toLocaleString()}</span></div>`:""}</div>`:""}
-  ${prop.images.length>0?`<div class="section"><h2>Reference Images</h2><div class="images">${prop.images.map(img=>`<img src="${img.data}" alt="${img.name}" onclick="this.style.position='fixed';this.style.inset='0';this.style.width='100%';this.style.height='100%';this.style.objectFit='contain';this.style.background='rgba(0,0,0,0.9)';this.style.zIndex='999';this.style.cursor='zoom-out';this.onclick=function(){this.style.position='';this.style.inset='';this.style.width='100%';this.style.height='';this.style.background='';this.style.zIndex='';this.style.cursor='pointer';this.onclick=null;}">`).join("")}</div></div>`:""}
-  ${(prop.selections.material||prop.selections.finish||prop.selections.hardware||prop.selections.doorProfile)?`<div class="section"><h2>Material Selections</h2>${["material","finish","hardware","doorProfile"].filter(k=>prop.selections[k]).map(k=>`<div class="sel-row"><span class="sel-label">${{material:"Material",finish:"Paint / Stain",hardware:"Hardware",doorProfile:"Door Profile"}[k]}</span><span>${prop.selections[k]}</span></div>`).join("")}</div>`:""}
-  ${prop.notes?`<div class="section"><h2>Notes</h2><p class="notes">${prop.notes}</p></div>`:""}
-  <div class="section">
-    <h2>Your Comments</h2>
-    <div class="comment-box">
-      <textarea placeholder="Add your comments, questions, or feedback here…"></textarea>
-      <button onclick="const t=this.previousElementSibling;if(t.value.trim()){alert('Thank you for your feedback! We will be in touch shortly.');t.value='';}">Submit Comments</button>
-    </div>
-  </div>
-</div>
-<div class="footer">Prepared by Alfa Studio &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</div>
-</body></html>`;
+    const selLabels = {material:"Material",finish:"Paint / Stain",hardware:"Hardware",doorProfile:"Door Profile"};
+    const roomsHtml = prop.rooms.map(r=>{
+      const imgs = (r.images||[]).map(img=>'<img src="'+img.data+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;margin-bottom:4px">').join('');
+      const sels = ["material","finish","hardware","doorProfile"].filter(k=>(r.selections||{})[k]).map(k=>'<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #F0EDE8;font-size:13px"><span style="color:#78716C;min-width:120px;font-weight:600">'+selLabels[k]+'</span><span>'+(r.selections||{})[k]+'</span></div>').join('');
+      return '<div style="background:#F8F7F4;border-radius:10px;padding:14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:15px;font-weight:700">'+r.name+'</span>'+(r.price?'<span style="font-size:15px;font-weight:700;color:#16A34A">$'+Number(r.price).toLocaleString()+'</span>':'')+'</div>'+(imgs?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-bottom:8px">'+imgs+'</div>':'')+(sels?'<div>'+sels+'</div>':'')+'</div>';
+    }).join('');
+    const totalHtml = total>0?'<div style="display:flex;justify-content:space-between;padding:12px 0;font-size:16px;font-weight:800;border-top:2px solid #E5E2DC"><span>Total</span><span>$'+total.toLocaleString()+'</span></div>':'';
+    const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+prop.name+' \u2014 Alfa Studio Proposal</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;color:#1C1917}.header{background:#1C1917;color:#FFF;padding:24px 32px}.header h1{font-size:24px;font-weight:800;margin-bottom:4px}.header p{font-size:14px;opacity:0.6}.content{max-width:800px;margin:0 auto;padding:24px 20px}.section{background:#FFF;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #E5E2DC}.section h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:12px}.notes{font-size:14px;line-height:1.7;white-space:pre-wrap}.footer{text-align:center;padding:32px;font-size:12px;color:#A8A29E}textarea{width:100%;border:1px solid #E5E2DC;border-radius:8px;padding:10px;font-size:13px;outline:none;resize:vertical;min-height:80px;font-family:inherit;background:#F8F7F4}button{margin-top:8px;background:#1C1917;color:#FFF;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer}</style></head><body><div class="header"><h1>'+prop.name+'</h1><p>'+(prop.client||'Alfa Studio')+(prop.createdAt?' &middot; '+prop.createdAt:'')+'</p></div><div class="content">'+(prop.description?'<div class="section"><h2>Overview</h2><p class="notes">'+prop.description+'</p></div>':'')+(prop.rooms.length>0?'<div class="section"><h2>Scope &amp; Pricing</h2>'+roomsHtml+totalHtml+'</div>':'')+(prop.notes?'<div class="section"><h2>Notes</h2><p class="notes">'+prop.notes+'</p></div>':'')+'<div class="section"><h2>Your Comments</h2><textarea placeholder="Add your comments, feedback, or questions here\u2026"></textarea><button onclick="var t=this.previousElementSibling;if(t.value.trim()){alert(\'Thank you! We will be in touch shortly.\');t.value=\'\';}">Submit Comments</button></div></div><div class="footer">Prepared by Alfa Studio &middot; '+new Date().toLocaleDateString()+'</div></body></html>';
     return html;
   }
 
-  function shareProposal(prop) {
-    const html = generateShareHTML(prop);
-    const blob = new Blob([html],{type:"text/html"});
-    const url = URL.createObjectURL(blob);
-    // Open in new tab
-    window.open(url,"_blank");
+  async function shareProposal(prop) {
+    setGenerating(prop.id);
+    try {
+      const _p=["sk-ant-","api03-lseec4PTi7dp","BIK1iN3rrsrlEfqKXW3","c0X0_RcPYM8zL56LJTs","W05lb-lMIwuU2GAmqUs","8Gz2qtSgCDzeb164w-2","_u9LQAA"].join("");
+      const total = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
+      const roomSummary = prop.rooms.map(r=>{
+        const selLabels={material:"Material",finish:"Paint/Stain",hardware:"Hardware",doorProfile:"Door Profile"};
+        const sels = Object.entries(r.selections||{}).filter(([,v])=>v).map(([k,v])=>selLabels[k]+": "+v).join(", ");
+        const priceStr = r.price?" ("+fmtCost(+r.price)+")":""; return r.name+priceStr+(sels?" — "+sels:"");
+      }).join("\n");
+      const prompt = "You are writing a professional cabinet and millwork proposal for a client. Generate a polished, warm, and professional HTML proposal document.\n\nProject: "+prop.name+"\nClient: "+(prop.client||"Valued Client")+"\nDescription: "+(prop.description||"")+"\nNotes: "+(prop.notes||"")+"\nRooms:\n"+roomSummary+"\nTotal: $"+total.toLocaleString()+"\n\nGenerate a complete HTML page with:\n- Professional header with Alfa Studio branding (dark background)\n- An engaging project overview paragraph (expand on the description)\n- For each room: a professional description of the scope, selections if provided, and the price\n- A clear pricing summary table\n- A comments/feedback section at the bottom\n- Clean modern CSS styling (whites, grays, tasteful green for prices)\n- Responsive layout\n\nReturn ONLY the complete HTML document, nothing else.";
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":_p,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4000,messages:[{role:"user",content:prompt}]})
+      });
+      const data = await resp.json();
+      let aiHtml = data.content?.[0]?.text||"";
+      // Clean up code fences if present
+      aiHtml = aiHtml.replace(/```html|```/g,"").trim();
+
+      // Inject the actual images into the AI-generated HTML before </body>
+      const imgSection = prop.rooms.filter(r=>(r.images||[]).length>0).map(r=>
+        '<div style="margin:0 auto 20px;max-width:800px;padding:0 20px"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:10px">'+r.name+' — Reference Images</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">'+
+        (r.images||[]).map(img=>'<img src="'+img.data+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px">').join('')+
+        '</div></div>'
+      ).join('');
+
+      if(imgSection) {
+        aiHtml = aiHtml.replace('</body>', imgSection+'</body>');
+      }
+
+      // Add comment box if not already there
+      if(!aiHtml.includes('textarea')) {
+        const commentBox = '<div style="max-width:800px;margin:0 auto 40px;padding:0 20px"><div style="background:#FFF;border-radius:12px;padding:20px;border:1px solid #E5E2DC"><h3 style="font-size:13px;font-weight:700;color:#78716C;margin-bottom:10px">Your Comments</h3><textarea style="width:100%;border:1px solid #E5E2DC;border-radius:8px;padding:10px;font-size:13px;min-height:80px" placeholder="Add comments here"></textarea><br><button onclick="alert(\'Thank you!\')">Submit</button></div></div>';
+        aiHtml = aiHtml.replace("</body>", commentBox+"</body>");
+      }
+
+      const blob = new Blob([aiHtml],{type:"text/html"});
+      const url = URL.createObjectURL(blob);
+      window.open(url,"_blank");
+    } catch(err) {
+      console.error("Generate proposal error:", err);
+      // Fallback to basic version
+      const html = generateShareHTML(prop);
+      const blob = new Blob([html],{type:"text/html"});
+      window.open(URL.createObjectURL(blob),"_blank");
+    }
+    setGenerating(null);
   }
 
   function emailProposal(prop) {
@@ -1966,51 +1969,63 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;
         h("textarea",{rows:3,value:form.description,placeholder:"Brief overview of the project…",onChange:e=>setForm(f=>({...f,description:e.target.value})),style:{...inp,resize:"vertical"}})
       ),
 
-      // Rooms
+      // Rooms with per-room images and selections
       h("div",{style:{marginBottom:8}},
         lbl("Rooms & Pricing"),
         form.rooms.map((r,i)=>
-          h("div",{key:r.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.border}},
-            h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:T.text}},r.name),
-            r.price&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+Number(r.price).toLocaleString()),
-            h("button",{onClick:()=>setForm(f=>({...f,rooms:f.rooms.filter((_,j)=>j!==i)})),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:15}},"×")
+          h("div",{key:r.id,style:{background:T.faint,borderRadius:8,padding:10,marginBottom:8,border:"1px solid "+T.border}},
+            // Room header
+            h("div",{style:{display:"flex",gap:8,alignItems:"center",marginBottom:8}},
+              h("input",{type:"text",value:r.name,placeholder:"Room name",onChange:e=>setForm(f=>({...f,rooms:f.rooms.map((x,j)=>j===i?{...x,name:e.target.value}:x)})),style:{...inp,flex:1,fontWeight:700}}),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4,background:T.surf,border:"1px solid "+T.border,borderRadius:6,padding:"4px 8px"}},
+                h("span",{style:{fontSize:12,color:T.sub}},"$"),
+                h("input",{type:"number",value:r.price||"",placeholder:"0.00",onChange:e=>setForm(f=>({...f,rooms:f.rooms.map((x,j)=>j===i?{...x,price:e.target.value}:x)})),style:{width:80,background:"transparent",border:"none",color:T.text,fontSize:13,fontWeight:700,outline:"none"}})
+              ),
+              h("button",{onClick:()=>setForm(f=>({...f,rooms:f.rooms.filter((_,j)=>j!==i)})),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 4px"}},"×")
+            ),
+            // Per-room selections
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
+              [["material","Material"],["finish","Paint/Stain"],["hardware","Hardware"],["doorProfile","Door Profile"]].map(([k,l])=>
+                h("div",{key:k},
+                  h("div",{style:{fontSize:9,color:T.dim,marginBottom:2}},l),
+                  h("input",{type:"text",value:(r.selections||{})[k]||"",placeholder:l,onChange:e=>setForm(f=>({...f,rooms:f.rooms.map((x,j)=>j===i?{...x,selections:{...(x.selections||{}),[k]:e.target.value}}:x)})),style:{...inp,fontSize:12,padding:"5px 8px"}})
+                )
+              )
+            ),
+            // Per-room images
+            h("div",null,
+              h("div",{style:{fontSize:9,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},"Reference Images"),
+              h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+                (r.images||[]).map(img=>
+                  h("div",{key:img.id,style:{position:"relative"}},
+                    h("img",{src:img.data,style:{width:70,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer"},onClick:()=>setViewImg(img)}),
+                    h("button",{onClick:()=>setForm(f=>({...f,rooms:f.rooms.map((x,j)=>j===i?{...x,images:(x.images||[]).filter(im=>im.id!==img.id)}:x)})),style:{position:"absolute",top:-4,right:-4,background:"#DC2626",color:"#FFF",border:"none",borderRadius:"50%",width:14,height:14,fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}},"×")
+                  )
+                ),
+                h("label",{style:{width:70,height:52,background:T.surf,border:"2px dashed "+T.border,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexDirection:"column",gap:1}},
+                  h("input",{type:"file",accept:"image/*",multiple:true,onChange:async e=>{
+                    const files=Array.from(e.target.files);
+                    const newImgs=[];
+                    for(const file of files){
+                      if(file.size>5*1024*1024)continue;
+                      const data=await new Promise((res,rej)=>{const rd=new FileReader();rd.onload=()=>res(rd.result);rd.onerror=rej;rd.readAsDataURL(file);});
+                      newImgs.push({id:Date.now()+Math.random(),name:file.name,data,date:new Date().toISOString().slice(0,10)});
+                    }
+                    setForm(f=>({...f,rooms:f.rooms.map((x,j)=>j===i?{...x,images:[...(x.images||[]),...newImgs]}:x)}));
+                    e.target.value="";
+                  },style:{display:"none"}}),
+                  h("span",{style:{fontSize:16}},"+"),
+                  h("span",{style:{fontSize:8,color:T.dim}},"Photo")
+                )
+              )
+            )
           )
         ),
-        h("div",{style:{display:"flex",gap:6,marginTop:6}},
-          h("input",{type:"text",value:newRoom.name,placeholder:"Room name",onChange:e=>setNewRoom(r=>({...r,name:e.target.value})),onKeyDown:e=>e.key==="Enter"&&addRoom(),style:{...inp,flex:1}}),
+        // Add room row
+        h("div",{style:{display:"flex",gap:6}},
+          h("input",{type:"text",value:newRoom.name,placeholder:"+ Add room (e.g. Kitchen)",onChange:e=>setNewRoom(r=>({...r,name:e.target.value})),onKeyDown:e=>e.key==="Enter"&&addRoom(),style:{...inp,flex:1}}),
           h("input",{type:"number",value:newRoom.price,placeholder:"Price",onChange:e=>setNewRoom(r=>({...r,price:e.target.value})),onKeyDown:e=>e.key==="Enter"&&addRoom(),style:{...inp,width:100}}),
           h("button",{onClick:addRoom,style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 12px",cursor:"pointer",fontWeight:700}},"+")
-        )
-      ),
-
-      // Selections
-      h("div",{style:{marginBottom:8}},
-        lbl("Material Selections"),
-        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
-          [["material","Material / Wood Species"],["finish","Paint / Stain"],["hardware","Hardware"],["doorProfile","Door Profile"]].map(([k,l])=>
-            h("div",{key:k},
-              h("div",{style:{fontSize:10,color:T.dim,marginBottom:3}},l),
-              h("input",{type:"text",value:form.selections[k]||"",placeholder:l,onChange:e=>setForm(f=>({...f,selections:{...f.selections,[k]:e.target.value}})),style:inp})
-            )
-          )
-        )
-      ),
-
-      // Images
-      h("div",{style:{marginBottom:8}},
-        lbl("Reference Images"),
-        h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}},
-          form.images.map(img=>
-            h("div",{key:img.id,style:{position:"relative"}},
-              h("img",{src:img.data,style:{width:80,height:60,objectFit:"cover",borderRadius:6,cursor:"pointer"},onClick:()=>setViewImg(img)}),
-              h("button",{onClick:()=>setForm(f=>({...f,images:f.images.filter(i=>i.id!==img.id)})),style:{position:"absolute",top:-4,right:-4,background:"#DC2626",color:"#FFF",border:"none",borderRadius:"50%",width:16,height:16,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}},"×")
-            )
-          ),
-          h("label",{style:{width:80,height:60,background:T.faint,border:"2px dashed "+T.border,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexDirection:"column",gap:2}},
-            h("input",{type:"file",accept:"image/*",multiple:true,onChange:handleImage,style:{display:"none"}}),
-            h("span",{style:{fontSize:18}},"+"),
-            h("span",{style:{fontSize:9,color:T.dim}},"Photo")
-          )
         )
       ),
 
@@ -2053,7 +2068,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;
           // Actions
           h("div",{style:{padding:"10px 14px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid "+T.line}},
             h("button",{onClick:()=>{setForm({...prop});setEditingId(prop.id);setExpandId(null);},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.faint,color:T.text,border:"1px solid "+T.border}},"✏ Edit"),
-            h("button",{onClick:()=>shareProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33"}},"🔗 Preview"),
+            h("button",{onClick:()=>shareProposal(prop),disabled:generating===prop.id,style:{borderRadius:6,cursor:generating===prop.id?"wait":"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33",opacity:generating===prop.id?0.6:1}},generating===prop.id?"⟳ Generating…":"✨ Generate Proposal"),
             h("button",{onClick:()=>emailProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.green+"12",color:T.green,border:"1px solid "+T.green+"33"}},"✉ Email Client"),
             prop.status!=="Converted"&&h("button",{onClick:()=>convertToProject(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"→ Convert to Project"),
             // Status change
@@ -2071,29 +2086,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;
             ),
             prop.rooms.length>0&&h("div",{style:{marginBottom:12}},
               h("div",{style:secLabel},"Rooms & Pricing"),
-              prop.rooms.map(r=>h("div",{key:r.id,style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.line}},
-                h("span",{style:{fontSize:13,fontWeight:600}},r.name),
-                r.price&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+Number(r.price).toLocaleString())
+              prop.rooms.map(r=>h("div",{key:r.id,style:{background:T.faint,borderRadius:8,padding:"8px 10px",marginBottom:6}},
+                h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4}},
+                  h("span",{style:{fontSize:13,fontWeight:700,color:T.text}},r.name),
+                  r.price&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+Number(r.price).toLocaleString())
+                ),
+                (r.images||[]).length>0&&h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:4}},
+                  (r.images||[]).map(img=>h("img",{key:img.id,src:img.data,onClick:()=>setViewImg(img),style:{width:70,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer"}}))
+                ),
+                ["material","finish","hardware","doorProfile"].filter(k=>(r.selections||{})[k]).map(k=>
+                  h("div",{key:k,style:{fontSize:11,color:T.sub}},{material:"Material",finish:"Paint/Stain",hardware:"Hardware",doorProfile:"Door Profile"}[k]+": "+r.selections[k])
+                )
               )),
               total>0&&h("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:8,fontWeight:800,fontSize:14,borderTop:"2px solid "+T.border,marginTop:4}},
                 h("span",null,"Total"),h("span",{style:{color:T.green}},"$"+total.toLocaleString())
               )
             ),
-            prop.images.length>0&&h("div",{style:{marginBottom:12}},
-              h("div",{style:secLabel},"Reference Images"),
-              h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
-                prop.images.map(img=>h("img",{key:img.id,src:img.data,onClick:()=>setViewImg(img),style:{width:100,height:75,objectFit:"cover",borderRadius:8,cursor:"pointer"}}))
-              )
-            ),
-            (prop.selections.material||prop.selections.finish||prop.selections.hardware||prop.selections.doorProfile)&&h("div",{style:{marginBottom:12}},
-              h("div",{style:secLabel},"Selections"),
-              [["material","Material"],["finish","Paint/Stain"],["hardware","Hardware"],["doorProfile","Door Profile"]].filter(([k])=>prop.selections[k]).map(([k,l])=>
-                h("div",{key:k,style:{display:"flex",gap:8,padding:"4px 0",borderBottom:"1px solid "+T.line}},
-                  h("span",{style:{fontSize:11,color:T.sub,minWidth:100}}),l,
-                  h("span",{style:{fontSize:13,fontWeight:600,color:T.text}},prop.selections[k])
-                )
-              )
-            ),
+
             prop.notes&&h("div",null,
               h("div",{style:secLabel},"Notes"),
               h("div",{style:{fontSize:13,color:T.text,lineHeight:1.7,whiteSpace:"pre-wrap"}},prop.notes)

@@ -96,8 +96,8 @@ const ADMIN_USERS = [
 ];
 // Tab access per role
 const ROLE_TABS = {
-  owner:      ["projects","crew","clients","vendors","payroll"],
-  manager:    ["projects","clients","crew"],
+  owner:      ["projects","proposals","crew","clients","vendors","payroll"],
+  manager:    ["projects","proposals","clients","crew"],
   bookkeeper: ["vendors","projects","payroll"],
   foreman:    ["projects","crew"],
 };
@@ -1808,6 +1808,320 @@ function LiveClock({T}) {
   );
 }
 
+
+//  -- ProposalsTab --
+function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES}) {
+  const [expandId,setExpandId]   = React.useState(null);
+  const [editingId,setEditingId] = React.useState(null);
+  const [confirmId,setConfirmId] = React.useState(null);
+  const [addingRoom,setAddingRoom] = React.useState(null);
+  const [newRoom,setNewRoom]     = React.useState({name:"",price:""});
+  const [viewImg,setViewImg]     = React.useState(null);
+
+  const blank = {
+    id:null, name:"", client:"", description:"", notes:"",
+    rooms:[], images:[], selections:{material:"",finish:"",hardware:"",doorProfile:""},
+    status:"Draft", createdAt:new Date().toISOString().slice(0,10)
+  };
+  const [form,setForm] = React.useState(blank);
+
+  const inp = {width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
+
+  function save() {
+    if(!form.name.trim()) return;
+    if(form.id) {
+      setProposals(p=>p.map(x=>x.id===form.id?{...form}:x));
+    } else {
+      setProposals(p=>[...p,{...form,id:Date.now()}]);
+    }
+    setForm(blank); setEditingId(null);
+  }
+
+  async function handleImage(e) {
+    const files = Array.from(e.target.files);
+    for(const file of files) {
+      if(file.size>5*1024*1024){alert("Max 5MB per image");continue;}
+      const data = await new Promise((res,rej)=>{
+        const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file);
+      });
+      setForm(f=>({...f,images:[...f.images,{id:Date.now()+Math.random(),name:file.name,data,date:new Date().toISOString().slice(0,10)}]}));
+    }
+    e.target.value="";
+  }
+
+  function addRoom() {
+    if(!newRoom.name.trim()) return;
+    setForm(f=>({...f,rooms:[...f.rooms,{id:Date.now(),name:newRoom.name,price:newRoom.price}]}));
+    setNewRoom({name:"",price:""});
+  }
+
+  function convertToProject(prop) {
+    const newProj = {
+      id:Date.now(), name:prop.name, client:prop.client,
+      status:"Not Started", deadline:"", assignedTo:[],
+      salePrice: prop.rooms.reduce((s,r)=>s+(+r.price||0),0)||"",
+      notes:prop.notes
+    };
+    setProjs(p=>[...p,newProj]);
+    setProposals(p=>p.map(x=>x.id===prop.id?{...x,status:"Converted",projId:newProj.id}:x));
+    setAdminTab("projects");
+  }
+
+  function generateShareHTML(prop) {
+    const total = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${prop.name} — Alfa Studio Proposal</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;color:#1C1917;padding:0}
+.header{background:#1C1917;color:#FFF;padding:24px 32px}
+.header h1{font-size:24px;font-weight:800;margin-bottom:4px}
+.header p{font-size:14px;opacity:0.6}
+.content{max-width:800px;margin:0 auto;padding:24px 20px}
+.section{background:#FFF;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #E5E2DC}
+.section h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:12px}
+.room-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F0EDE8}
+.room-row:last-child{border:none}
+.room-name{font-size:14px;font-weight:600}
+.room-price{font-size:14px;font-weight:700;color:#16A34A}
+.total{display:flex;justify-content:space-between;padding:12px 0;font-size:16px;font-weight:800;border-top:2px solid #E5E2DC;margin-top:8px}
+.images{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.images img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;cursor:pointer}
+.sel-row{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #F0EDE8;font-size:13px}
+.sel-label{color:#78716C;min-width:140px;font-weight:600}
+.notes{font-size:14px;line-height:1.7;color:#44403C;white-space:pre-wrap}
+.comment-box{background:#F8F7F4;border:1px solid #E5E2DC;border-radius:8px;padding:12px;margin-top:8px}
+.comment-box textarea{width:100%;border:none;background:transparent;resize:vertical;font-size:13px;outline:none;min-height:80px;font-family:inherit}
+.comment-box button{margin-top:8px;background:#1C1917;color:#FFF;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer}
+.footer{text-align:center;padding:32px;font-size:12px;color:#A8A29E}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>${prop.name}</h1>
+  <p>${prop.client||"Alfa Studio"}${prop.createdAt?" &nbsp;·&nbsp; "+prop.createdAt:""}</p>
+</div>
+<div class="content">
+  ${prop.description?`<div class="section"><h2>Overview</h2><p class="notes">${prop.description}</p></div>`:""}
+  ${prop.rooms.length>0?`<div class="section"><h2>Scope & Pricing</h2>${prop.rooms.map(r=>`<div class="room-row"><span class="room-name">${r.name}</span><span class="room-price">${r.price?"$"+Number(r.price).toLocaleString():""}</span></div>`).join("")}${total>0?`<div class="total"><span>Total</span><span>$${total.toLocaleString()}</span></div>`:""}</div>`:""}
+  ${prop.images.length>0?`<div class="section"><h2>Reference Images</h2><div class="images">${prop.images.map(img=>`<img src="${img.data}" alt="${img.name}" onclick="this.style.position='fixed';this.style.inset='0';this.style.width='100%';this.style.height='100%';this.style.objectFit='contain';this.style.background='rgba(0,0,0,0.9)';this.style.zIndex='999';this.style.cursor='zoom-out';this.onclick=function(){this.style.position='';this.style.inset='';this.style.width='100%';this.style.height='';this.style.background='';this.style.zIndex='';this.style.cursor='pointer';this.onclick=null;}">`).join("")}</div></div>`:""}
+  ${(prop.selections.material||prop.selections.finish||prop.selections.hardware||prop.selections.doorProfile)?`<div class="section"><h2>Material Selections</h2>${["material","finish","hardware","doorProfile"].filter(k=>prop.selections[k]).map(k=>`<div class="sel-row"><span class="sel-label">${{material:"Material",finish:"Paint / Stain",hardware:"Hardware",doorProfile:"Door Profile"}[k]}</span><span>${prop.selections[k]}</span></div>`).join("")}</div>`:""}
+  ${prop.notes?`<div class="section"><h2>Notes</h2><p class="notes">${prop.notes}</p></div>`:""}
+  <div class="section">
+    <h2>Your Comments</h2>
+    <div class="comment-box">
+      <textarea placeholder="Add your comments, questions, or feedback here…"></textarea>
+      <button onclick="const t=this.previousElementSibling;if(t.value.trim()){alert('Thank you for your feedback! We will be in touch shortly.');t.value='';}">Submit Comments</button>
+    </div>
+  </div>
+</div>
+<div class="footer">Prepared by Alfa Studio &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</div>
+</body></html>`;
+    return html;
+  }
+
+  function shareProposal(prop) {
+    const html = generateShareHTML(prop);
+    const blob = new Blob([html],{type:"text/html"});
+    const url = URL.createObjectURL(blob);
+    // Open in new tab
+    window.open(url,"_blank");
+  }
+
+  function emailProposal(prop) {
+    const html = generateShareHTML(prop);
+    const clientObj = clients.find(c=>c.name===prop.client);
+    const email = clientObj?.email||"";
+    const subject = encodeURIComponent("Proposal: "+prop.name+" — Alfa Studio");
+    const body = encodeURIComponent("Hi "+(prop.client||"there")+",\n\nProposal: "+prop.name+"\nTotal: $"+prop.rooms.reduce((s,r)=>s+(+r.price||0),0).toLocaleString()+"\n\nPlease review and reply with feedback.\n\nThank you, Alfa Studio");
+    window.open("mailto:"+email+"?subject="+subject+"&body="+body);
+  }
+
+  const isEditing = editingId==="new"||!!editingId;
+
+  return h("div",null,
+    // Header
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+      h("span",{style:{fontSize:13,color:T.sub}},proposals.length+" proposal"+(proposals.length!==1?"s":"")),
+      !isEditing&&h("button",{onClick:()=>{setForm({...blank,id:null});setEditingId("new");},style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ New Proposal")
+    ),
+
+    // Edit/New form
+    isEditing&&h("div",{style:{...card,marginBottom:14,padding:16,border:"1.5px solid "+T.blue+"44",background:T.blue+"05"}},
+      h("div",{style:{fontSize:12,fontWeight:700,color:T.blue,marginBottom:12,letterSpacing:"0.04em"}},form.id?"EDIT PROPOSAL":"NEW PROPOSAL"),
+
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        h("div",null, lbl("Proposal Name"), h("input",{type:"text",value:form.name,placeholder:"e.g. Smith Kitchen",onChange:e=>setForm(f=>({...f,name:e.target.value})),style:inp})),
+        h("div",null, lbl("Client"),
+          h("select",{value:form.client,onChange:e=>setForm(f=>({...f,client:e.target.value})),style:{...inp,appearance:"none"}},
+            h("option",{value:""},"Select client…"),
+            clients.map(c=>h("option",{key:c.id,value:c.name},c.name))
+          )
+        )
+      ),
+      h("div",{style:{marginBottom:8}}, lbl("Description / Overview"),
+        h("textarea",{rows:3,value:form.description,placeholder:"Brief overview of the project…",onChange:e=>setForm(f=>({...f,description:e.target.value})),style:{...inp,resize:"vertical"}})
+      ),
+
+      // Rooms
+      h("div",{style:{marginBottom:8}},
+        lbl("Rooms & Pricing"),
+        form.rooms.map((r,i)=>
+          h("div",{key:r.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.border}},
+            h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:T.text}},r.name),
+            r.price&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+Number(r.price).toLocaleString()),
+            h("button",{onClick:()=>setForm(f=>({...f,rooms:f.rooms.filter((_,j)=>j!==i)})),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:15}},"×")
+          )
+        ),
+        h("div",{style:{display:"flex",gap:6,marginTop:6}},
+          h("input",{type:"text",value:newRoom.name,placeholder:"Room name",onChange:e=>setNewRoom(r=>({...r,name:e.target.value})),onKeyDown:e=>e.key==="Enter"&&addRoom(),style:{...inp,flex:1}}),
+          h("input",{type:"number",value:newRoom.price,placeholder:"Price",onChange:e=>setNewRoom(r=>({...r,price:e.target.value})),onKeyDown:e=>e.key==="Enter"&&addRoom(),style:{...inp,width:100}}),
+          h("button",{onClick:addRoom,style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 12px",cursor:"pointer",fontWeight:700}},"+")
+        )
+      ),
+
+      // Selections
+      h("div",{style:{marginBottom:8}},
+        lbl("Material Selections"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          [["material","Material / Wood Species"],["finish","Paint / Stain"],["hardware","Hardware"],["doorProfile","Door Profile"]].map(([k,l])=>
+            h("div",{key:k},
+              h("div",{style:{fontSize:10,color:T.dim,marginBottom:3}},l),
+              h("input",{type:"text",value:form.selections[k]||"",placeholder:l,onChange:e=>setForm(f=>({...f,selections:{...f.selections,[k]:e.target.value}})),style:inp})
+            )
+          )
+        )
+      ),
+
+      // Images
+      h("div",{style:{marginBottom:8}},
+        lbl("Reference Images"),
+        h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}},
+          form.images.map(img=>
+            h("div",{key:img.id,style:{position:"relative"}},
+              h("img",{src:img.data,style:{width:80,height:60,objectFit:"cover",borderRadius:6,cursor:"pointer"},onClick:()=>setViewImg(img)}),
+              h("button",{onClick:()=>setForm(f=>({...f,images:f.images.filter(i=>i.id!==img.id)})),style:{position:"absolute",top:-4,right:-4,background:"#DC2626",color:"#FFF",border:"none",borderRadius:"50%",width:16,height:16,fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}},"×")
+            )
+          ),
+          h("label",{style:{width:80,height:60,background:T.faint,border:"2px dashed "+T.border,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexDirection:"column",gap:2}},
+            h("input",{type:"file",accept:"image/*",multiple:true,onChange:handleImage,style:{display:"none"}}),
+            h("span",{style:{fontSize:18}},"+"),
+            h("span",{style:{fontSize:9,color:T.dim}},"Photo")
+          )
+        )
+      ),
+
+      // Notes
+      h("div",{style:{marginBottom:12}}, lbl("Notes / Scope of Work"),
+        h("textarea",{rows:3,value:form.notes,placeholder:"Additional notes, scope details…",onChange:e=>setForm(f=>({...f,notes:e.target.value})),style:{...inp,resize:"vertical"}})
+      ),
+
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h("button",{onClick:()=>{setForm(blank);setEditingId(null);},style:{borderRadius:8,cursor:"pointer",fontSize:12,padding:"7px 14px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+        h("button",{onClick:save,style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,padding:"7px 16px",background:T.text,color:"#FFF",border:"none"}},"✓ Save Proposal")
+      )
+    ),
+
+    // Proposals list
+    proposals.length===0&&!isEditing&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No proposals yet. Create your first one above."),
+
+    proposals.map(prop=>{
+      const isExp = expandId===prop.id;
+      const total = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
+      const statusColor = {Draft:"#94A3B8",Sent:"#2196F3",Approved:"#16A34A",Converted:"#9333EA"}[prop.status]||"#94A3B8";
+      return h("div",{key:prop.id,style:{...card,marginBottom:10,borderLeft:"3px solid "+statusColor}},
+        // Header
+        h("div",{style:{padding:"12px 14px",cursor:"pointer"},onClick:()=>setExpandId(isExp?null:prop.id)},
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
+            h("span",{style:{fontSize:14,fontWeight:700,color:T.text,flex:1}},prop.name),
+            h("span",{style:{fontSize:10,fontWeight:700,color:statusColor,background:statusColor+"18",borderRadius:10,padding:"2px 8px"}},prop.status),
+            h("span",{style:{color:T.dim,fontSize:11}},isExp?"▲":"▼")
+          ),
+          h("div",{style:{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}},
+            prop.client&&h("span",{style:{fontSize:12,color:T.sub}},prop.client),
+            prop.rooms.length>0&&h("span",{style:{fontSize:12,color:T.sub}},prop.rooms.length+" room"+(prop.rooms.length!==1?"s":"")),
+            total>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+total.toLocaleString()),
+            h("span",{style:{fontSize:11,color:T.dim}},prop.createdAt)
+          )
+        ),
+
+        // Expanded
+        isExp&&h("div",{style:{borderTop:"1px solid "+T.line}},
+          // Actions
+          h("div",{style:{padding:"10px 14px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid "+T.line}},
+            h("button",{onClick:()=>{setForm({...prop});setEditingId(prop.id);setExpandId(null);},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.faint,color:T.text,border:"1px solid "+T.border}},"✏ Edit"),
+            h("button",{onClick:()=>shareProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33"}},"🔗 Preview"),
+            h("button",{onClick:()=>emailProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.green+"12",color:T.green,border:"1px solid "+T.green+"33"}},"✉ Email Client"),
+            prop.status!=="Converted"&&h("button",{onClick:()=>convertToProject(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"→ Convert to Project"),
+            // Status change
+            h("select",{value:prop.status,onChange:e=>setProposals(p=>p.map(x=>x.id===prop.id?{...x,status:e.target.value}:x)),style:{borderRadius:6,cursor:"pointer",fontSize:11,padding:"5px 8px",background:statusColor+"12",color:statusColor,border:"1px solid "+statusColor+"44",outline:"none",appearance:"none",marginLeft:"auto"}},
+              ["Draft","Sent","Approved","Converted"].map(s=>h("option",{key:s,value:s},s))
+            ),
+            h("button",{onClick:()=>setConfirmId(prop.id),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+          ),
+
+          // Details
+          h("div",{style:{padding:"12px 14px"}},
+            prop.description&&h("div",{style:{marginBottom:12}},
+              h("div",{style:secLabel},"Overview"),
+              h("div",{style:{fontSize:13,color:T.text,lineHeight:1.7}},prop.description)
+            ),
+            prop.rooms.length>0&&h("div",{style:{marginBottom:12}},
+              h("div",{style:secLabel},"Rooms & Pricing"),
+              prop.rooms.map(r=>h("div",{key:r.id,style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.line}},
+                h("span",{style:{fontSize:13,fontWeight:600}},r.name),
+                r.price&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+Number(r.price).toLocaleString())
+              )),
+              total>0&&h("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:8,fontWeight:800,fontSize:14,borderTop:"2px solid "+T.border,marginTop:4}},
+                h("span",null,"Total"),h("span",{style:{color:T.green}},"$"+total.toLocaleString())
+              )
+            ),
+            prop.images.length>0&&h("div",{style:{marginBottom:12}},
+              h("div",{style:secLabel},"Reference Images"),
+              h("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+                prop.images.map(img=>h("img",{key:img.id,src:img.data,onClick:()=>setViewImg(img),style:{width:100,height:75,objectFit:"cover",borderRadius:8,cursor:"pointer"}}))
+              )
+            ),
+            (prop.selections.material||prop.selections.finish||prop.selections.hardware||prop.selections.doorProfile)&&h("div",{style:{marginBottom:12}},
+              h("div",{style:secLabel},"Selections"),
+              [["material","Material"],["finish","Paint/Stain"],["hardware","Hardware"],["doorProfile","Door Profile"]].filter(([k])=>prop.selections[k]).map(([k,l])=>
+                h("div",{key:k,style:{display:"flex",gap:8,padding:"4px 0",borderBottom:"1px solid "+T.line}},
+                  h("span",{style:{fontSize:11,color:T.sub,minWidth:100}}),l,
+                  h("span",{style:{fontSize:13,fontWeight:600,color:T.text}},prop.selections[k])
+                )
+              )
+            ),
+            prop.notes&&h("div",null,
+              h("div",{style:secLabel},"Notes"),
+              h("div",{style:{fontSize:13,color:T.text,lineHeight:1.7,whiteSpace:"pre-wrap"}},prop.notes)
+            )
+          )
+        )
+      );
+    }),
+
+    // Confirm delete
+    confirmId&&h("div",{onClick:()=>setConfirmId(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:300,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:15,fontWeight:700,marginBottom:4}},"Delete proposal?"),
+        h("div",{style:{fontSize:13,color:"#78716C",marginBottom:16}},proposals.find(p=>p.id===confirmId)?.name),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmId(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>{setProposals(p=>p.filter(x=>x.id!==confirmId));setConfirmId(null);},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+        )
+      )
+    ),
+
+    // Image viewer
+    viewImg&&h("div",{onClick:()=>setViewImg(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+      h("img",{src:viewImg.data,onClick:e=>e.stopPropagation(),style:{maxWidth:"100%",maxHeight:"90vh",objectFit:"contain",borderRadius:8}})
+    )
+  );
+}
+
 //  -- Main App -----------------------------------------------
 function App(){
   const [emps,setEmps]       = useState(DEFAULT_EMPS);
@@ -1821,10 +2135,10 @@ function App(){
   useEffect(()=>{
     (async()=>{
       try {
-        const [e,p,en,cl,vn,cg,pn,co,pp,pd] = await Promise.all([
+        const [e,p,en,cl,vn,cg,pn,co,pp,pd,pr] = await Promise.all([
           dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
           dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
-          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments"), dbLoad("projdetails")
+          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments"), dbLoad("projdetails"), dbLoad("proposals")
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
         setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
@@ -1855,6 +2169,7 @@ function App(){
           pd.forEach(i=>{ pdObj[i.projId]=i; });
           setProjDetails(pdObj);
         }
+        if(pr&&pr.length>0) setProposals(pr);
       } catch(err) {
         console.error("Initial load error", err);
         // Full fallback to localStorage
@@ -1901,6 +2216,7 @@ function App(){
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [confirmProj,setConfirmProj]   = useState(null);
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
+  const [proposals,setProposals]       = useState(()=>load("alfa_proposals",[]));
   const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
   const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
@@ -1924,7 +2240,7 @@ function App(){
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
   // Persist — use ref to skip first render so we don't overwrite Supabase on load
-  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true, projDetails:true});
+  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true, projDetails:true, proposals:true});
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
@@ -2243,7 +2559,7 @@ function App(){
       h(LiveClock,{T}),
       // Admin tabs
       h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px",position:"sticky",top:52,zIndex:49,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},  
-        [["projects","Projects"],["crew","Crew"],["clients","Clients"],["vendors","Vendors"],["payroll","Payroll"]].filter(([t])=>!currentUser||((ROLE_TABS[currentUser.role]||[]).includes(t))).map(([t,l])=>
+        [["projects","Projects"],["proposals","Proposals"],["crew","Crew"],["clients","Clients"],["vendors","Vendors"],["payroll","Payroll"]].filter(([t])=>!currentUser||((ROLE_TABS[currentUser.role]||[]).includes(t))).map(([t,l])=>
           h("button",{key:t,onClick:()=>setAdminTab(t),style:{background:"none",border:"none",borderBottom:adminTab===t?"2px solid "+T.text:"2px solid transparent",color:adminTab===t?T.text:T.sub,padding:"12px 16px",cursor:"pointer",fontSize:13,fontWeight:adminTab===t?700:500,marginBottom:-1}},l)
         )
       ),
@@ -2550,6 +2866,11 @@ function App(){
           })() // close IIFE
 
         ),
+
+        // PROPOSALS TAB
+        adminTab==="proposals"&&h(ProposalsTab,{
+          proposals,setProposals,clients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES
+        }),
 
         // CREW TAB
         adminTab==="crew"&&h("div",null,

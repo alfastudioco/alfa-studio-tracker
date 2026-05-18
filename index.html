@@ -1207,7 +1207,7 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
 }
 
 //  -- ProjectExpanded --
-function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
+function ProjectExpanded({proj,projs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
   activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
   T,secLabel,card,entryCost,projCogsTotals,currentUser,
   setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
@@ -1241,8 +1241,8 @@ function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProj
 
     // ── Quick actions row ──
     h("div",{style:{padding:"10px 16px",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",borderBottom:"1px solid "+T.line}},
-      // Status selector — moved here from card
-      h("select",{value:proj.status,onChange:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x));setProjFilter("All");},style:{background:SC[proj.status]+"18",color:SC[proj.status],border:"1px solid "+SC[proj.status]+"44",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
+      // Status selector — use live status from projs array
+      h("select",{value:projs.find(x=>x.id===proj.id)?.status||proj.status,onChange:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x));setProjFilter("All");},style:{background:SC[projs.find(x=>x.id===proj.id)?.status||proj.status]+"18",color:SC[projs.find(x=>x.id===proj.id)?.status||proj.status],border:"1px solid "+SC[projs.find(x=>x.id===proj.id)?.status||proj.status]+"44",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
         STATUSES.map(s=>h("option",{key:s,value:s},s))
       ),
       h("div",{style:{flex:1}}),
@@ -2936,7 +2936,7 @@ function App(){
                       })()
                     ),
                     isExp&&h(ProjectExpanded,{
-                      proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
+                      proj,projs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
                       activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
                       T,secLabel,card,entryCost,projCogsTotals,currentUser,
                       setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,

@@ -2385,6 +2385,13 @@ function App(){
     dbSave("projpayments", flat);
   },[projPayments]);
   useEffect(()=>{ try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{} },[clientOrder]);
+  useEffect(()=>{
+    if(proposals.length===0) return;
+    try{localStorage.setItem("alfa_proposals",JSON.stringify(proposals));}catch{}
+    if(isFirstRender.current.proposals){isFirstRender.current.proposals=false;return;}
+    const forDb = proposals.map(p=>{ const {generatedHtml,...rest}=p; return rest; });
+    dbSave("proposals", forDb);
+  },[proposals]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
 
   const done    = entries.filter(e=>e.end);

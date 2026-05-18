@@ -2242,16 +2242,20 @@ function App(){
           pd.forEach(i=>{ pdObj[i.projId]=i; });
           setProjDetails(pdObj);
         }
-        if(pr&&pr.length>0){
-          // Merge with localStorage to restore generatedHtml
+        // Always merge Supabase + localStorage for proposals
+        (()=>{
           const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
-          const merged = pr.map(p=>{ const lp=local.find(x=>x.id===p.id); return lp?{...p,generatedHtml:lp.generatedHtml,generatedAt:lp.generatedAt||p.generatedAt}:p; });
-          setProposals(merged);
-        } else {
-          // Fall back to localStorage entirely
-          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
-          if(local.length>0) setProposals(local);
-        }
+          if(pr&&pr.length>0){
+            // Use Supabase as source of truth but restore generatedHtml from localStorage
+            const merged = pr.map(p=>{ const lp=local.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml,generatedAt:lp.generatedAt||p.generatedAt}:p; });
+            // Also include any local proposals not yet in Supabase
+            const sbIds = new Set(pr.map(p=>String(p.id)));
+            const localOnly = local.filter(p=>!sbIds.has(String(p.id)));
+            setProposals([...merged,...localOnly]);
+          } else if(local.length>0) {
+            setProposals(local);
+          }
+        })();
       } catch(err) {
         console.error("Initial load error", err);
         // Full fallback to localStorage
@@ -2298,7 +2302,7 @@ function App(){
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [confirmProj,setConfirmProj]   = useState(null);
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
-  const [proposals,setProposals]       = useState(()=>load("alfa_proposals",[]));
+  const [proposals,setProposals]       = useState(()=>{ try{return JSON.parse(localStorage.getItem("alfa_proposals")||"[]");}catch{return [];} });
   const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
   const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}

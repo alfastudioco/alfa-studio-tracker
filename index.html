@@ -1810,14 +1810,16 @@ function LiveClock({T}) {
 
 
 //  -- ProposalsTab --
-function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES}) {
+function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES}) {
   const [expandId,setExpandId]   = React.useState(null);
   const [editingId,setEditingId] = React.useState(null);
   const [confirmId,setConfirmId] = React.useState(null);
   const [addingRoom,setAddingRoom] = React.useState(null);
   const [newRoom,setNewRoom]     = React.useState({name:"",price:""});
   const [viewImg,setViewImg]       = React.useState(null);
-  const [generating,setGenerating] = React.useState(null); // proposal id being generated
+  const [generating,setGenerating] = React.useState(null);
+  const [showNewClient,setShowNewClient] = React.useState(false);
+  const [newClientName,setNewClientName] = React.useState(""); // proposal id being generated
 
   const blank = {
     id:null, name:"", client:"", description:"", notes:"",
@@ -1998,9 +2000,29 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
       h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
         h("div",null, lbl("Proposal Name"), h("input",{type:"text",value:form.name,placeholder:"e.g. Smith Kitchen",onChange:e=>setForm(f=>({...f,name:e.target.value})),style:inp})),
         h("div",null, lbl("Client"),
-          h("select",{value:form.client,onChange:e=>setForm(f=>({...f,client:e.target.value})),style:{...inp,appearance:"none"}},
+          h("select",{value:form.client,onChange:e=>{if(e.target.value==="__new__"){setShowNewClient(true);}else{setForm(f=>({...f,client:e.target.value}));}},style:{...inp,appearance:"none"}},
             h("option",{value:""},"Select client…"),
-            clients.map(c=>h("option",{key:c.id,value:c.name},c.name))
+            clients.map(c=>h("option",{key:c.id,value:c.name},c.name)),
+            h("option",{value:"__new__"},"+ Add new client…")
+          ),
+          showNewClient&&h("div",{style:{display:"flex",gap:6,marginTop:6}},
+            h("input",{type:"text",autoFocus:true,placeholder:"Client name",value:newClientName,
+              onChange:e=>setNewClientName(e.target.value),
+              onKeyDown:e=>{if(e.key==="Enter"&&newClientName.trim()){
+                const n=newClientName.trim();
+                setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);
+                setForm(f=>({...f,client:n}));
+                setNewClientName(""); setShowNewClient(false);
+              }},
+              style:{...inp,flex:1}}),
+            h("button",{onClick:()=>{
+              const n=newClientName.trim();
+              if(!n)return;
+              setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);
+              setForm(f=>({...f,client:n}));
+              setNewClientName(""); setShowNewClient(false);
+            },style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
+            h("button",{onClick:()=>{setShowNewClient(false);setNewClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
           )
         )
       ),
@@ -2220,7 +2242,16 @@ function App(){
           pd.forEach(i=>{ pdObj[i.projId]=i; });
           setProjDetails(pdObj);
         }
-        if(pr&&pr.length>0) setProposals(pr);
+        if(pr&&pr.length>0){
+          // Merge with localStorage to restore generatedHtml
+          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
+          const merged = pr.map(p=>{ const lp=local.find(x=>x.id===p.id); return lp?{...p,generatedHtml:lp.generatedHtml,generatedAt:lp.generatedAt||p.generatedAt}:p; });
+          setProposals(merged);
+        } else {
+          // Fall back to localStorage entirely
+          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
+          if(local.length>0) setProposals(local);
+        }
       } catch(err) {
         console.error("Initial load error", err);
         // Full fallback to localStorage
@@ -2920,7 +2951,7 @@ function App(){
 
         // PROPOSALS TAB
         adminTab==="proposals"&&h(ProposalsTab,{
-          proposals,setProposals,clients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES
+          proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES
         }),
 
         // CREW TAB

@@ -1892,12 +1892,54 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
         const sels = Object.entries(r.selections||{}).filter(([,v])=>v).map(([k,v])=>selLabels[k]+": "+v).join(", ");
         const priceStr = r.price?" ("+fmtCost(+r.price)+")":""; return r.name+priceStr+(sels?" — "+sels:"");
       }).join("\n");
-      const prompt = "You are writing a professional cabinet and millwork proposal for a client. Generate a polished, warm, and professional HTML proposal document.\n\nProject: "+prop.name+"\nClient: "+(prop.client||"Valued Client")+"\nDescription: "+(prop.description||"")+"\nNotes: "+(prop.notes||"")+"\nRooms:\n"+roomSummary+"\nTotal: $"+total.toLocaleString()+"\n\nGenerate a complete HTML page with:\n- Professional header with Alfa Studio branding (dark background)\n- An engaging project overview paragraph (expand on the description)\n- For each room: a professional description of the scope, selections if provided, and the price\n- A clear pricing summary table\n- A comments/feedback section at the bottom\n- Clean modern CSS styling (whites, grays, tasteful green for prices)\n- Responsive layout\n\nReturn ONLY the complete HTML document, nothing else.";
+      const prompt = [
+        "You are a senior designer at Alfa Studio, a premium custom cabinet and millwork company. Create a stunning, high-end proposal document for a client.",
+        "",
+        "PROJECT DETAILS:",
+        "Project Name: "+prop.name,
+        "Client: "+(prop.client||"Valued Client"),
+        "Date: "+new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"}),
+        "Description: "+(prop.description||"Premium custom cabinetry project"),
+        "Scope Notes: "+(prop.notes||""),
+        "Rooms & Pricing:",
+        roomSummary,
+        "Investment Total: $"+total.toLocaleString(),
+        "",
+        "Generate a COMPLETE, STUNNING HTML proposal with this EXACT structure and design:",
+        "",
+        "1. COVER SECTION: Full-width dark (#1a1a2e) header, large elegant serif-style title, client name, date, 'Prepared by Alfa Studio' in gold (#c9a84c). Include a subtle geometric pattern or gradient.",
+        "",
+        "2. INTRODUCTION LETTER: A warm but authoritative 2-3 paragraph letter from Alfa Studio. Mention craftsmanship, attention to detail, the specific project vision. Reference the client by name. Make it feel personally written.",
+        "",
+        "3. PROJECT SCOPE SECTION: Dark section header. For EACH room write 2-3 sentences describing what will be built, the craftsmanship involved, and why it will transform their space. Show the price elegantly.",
+        "",
+        "4. MATERIAL SPECIFICATIONS: If selections provided, present them in an elegant specification table with icons or bullets.",
+        "",
+        "5. INVESTMENT SUMMARY: Clean pricing table showing each room and subtotal. Bold total in gold. Include a note about the investment being in quality that lasts generations.",
+        "",
+        "6. WHY ALFA STUDIO section: 3-4 bullet points about craftsmanship, custom work, quality materials, satisfaction guarantee.",
+        "",
+        "7. NEXT STEPS: Clear call to action — review, approve, and begin. Include signature line for client approval.",
+        "",
+        "8. CLIENT FEEDBACK: Elegant textarea for comments.",
+        "",
+        "CSS REQUIREMENTS (strictly follow):",
+        "- Font: use Google Fonts - import Playfair Display for headings, Inter for body",
+        "- Color palette: #1a1a2e (navy), #c9a84c (gold), #ffffff (white), #f8f8f6 (off-white), #2d2d2d (dark text)",
+        "- Section headers: dark navy background with gold accent line",  
+        "- Pricing: gold color for amounts",
+        "- Generous white space, elegant margins",
+        "- Print-optimized layout (max-width 900px centered)",
+        "- Subtle box shadows on cards",
+        "- Horizontal rules in gold (#c9a84c)",
+        "",
+        "Return ONLY the complete HTML document starting with <!DOCTYPE html>. No explanations."
+      ].join("\n");
 
       const resp = await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{"Content-Type":"application/json","x-api-key":_p,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4000,messages:[{role:"user",content:prompt}]})
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]})
       });
       const data = await resp.json();
       let aiHtml = data.content?.[0]?.text||"";
@@ -1921,17 +1963,36 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
         aiHtml = aiHtml.replace("</body>", commentBox+"</body>");
       }
 
+      // Store generated HTML in proposal record
+      setProposals(p=>p.map(x=>x.id===prop.id?{...x,generatedHtml:aiHtml,generatedAt:new Date().toISOString().slice(0,10)}:x));
+
+      // Open in new tab
       const blob = new Blob([aiHtml],{type:"text/html"});
       const url = URL.createObjectURL(blob);
       window.open(url,"_blank");
     } catch(err) {
       console.error("Generate proposal error:", err);
-      // Fallback to basic version
       const html = generateShareHTML(prop);
       const blob = new Blob([html],{type:"text/html"});
       window.open(URL.createObjectURL(blob),"_blank");
     }
     setGenerating(null);
+  }
+
+  function downloadProposal(prop) {
+    const html = prop.generatedHtml || generateShareHTML(prop);
+    // Add print styles for PDF
+    const printHtml = html.replace('</head>',
+      '<style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.no-print{display:none!important}}</style>' +
+      '<script>window.onload=function(){window.print();}<\/script></head>'
+    );
+    const blob = new Blob([printHtml],{type:"text/html"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (prop.name||"proposal").replace(/[^a-z0-9]/gi,"_")+".html";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function emailProposal(prop) {
@@ -2059,7 +2120,8 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
             prop.client&&h("span",{style:{fontSize:12,color:T.sub}},prop.client),
             prop.rooms.length>0&&h("span",{style:{fontSize:12,color:T.sub}},prop.rooms.length+" room"+(prop.rooms.length!==1?"s":"")),
             total>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.green}},"$"+total.toLocaleString()),
-            h("span",{style:{fontSize:11,color:T.dim}},prop.createdAt)
+            h("span",{style:{fontSize:11,color:T.dim}},prop.createdAt),
+            prop.generatedAt&&h("span",{style:{fontSize:10,color:T.green,fontWeight:600}},"✓ Generated "+prop.generatedAt)
           )
         ),
 
@@ -2069,6 +2131,8 @@ function ProposalsTab({proposals,setProposals,clients,projs,setProjs,setAdminTab
           h("div",{style:{padding:"10px 14px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid "+T.line}},
             h("button",{onClick:()=>{setForm({...prop});setEditingId(prop.id);setExpandId(null);},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.faint,color:T.text,border:"1px solid "+T.border}},"✏ Edit"),
             h("button",{onClick:()=>shareProposal(prop),disabled:generating===prop.id,style:{borderRadius:6,cursor:generating===prop.id?"wait":"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33",opacity:generating===prop.id?0.6:1}},generating===prop.id?"⟳ Generating…":"✨ Generate Proposal"),
+            prop.generatedHtml&&h("button",{onClick:()=>{const blob=new Blob([prop.generatedHtml],{type:"text/html"});window.open(URL.createObjectURL(blob),"_blank");},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"👁 View"),
+            prop.generatedHtml&&h("button",{onClick:()=>downloadProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.amber+"12",color:T.amber,border:"1px solid "+T.amber+"33"}},"⬇ Download PDF"),
             h("button",{onClick:()=>emailProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.green+"12",color:T.green,border:"1px solid "+T.green+"33"}},"✉ Email Client"),
             prop.status!=="Converted"&&h("button",{onClick:()=>convertToProject(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"→ Convert to Project"),
             // Status change

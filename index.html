@@ -1242,9 +1242,9 @@ function ProjectExpanded({proj,projs,emps,done,active,cogs,setCogs,projDetails,s
     // ── Quick actions row ──
     h("div",{style:{padding:"10px 16px",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",borderBottom:"1px solid "+T.line}},
       // Status selector — use live status from projs array
-      h("select",{value:projs.find(x=>x.id===proj.id)?.status||proj.status,onChange:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x));setProjFilter("All");},style:{background:SC[projs.find(x=>x.id===proj.id)?.status||proj.status]+"18",color:SC[projs.find(x=>x.id===proj.id)?.status||proj.status],border:"1px solid "+SC[projs.find(x=>x.id===proj.id)?.status||proj.status]+"44",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
+      (()=>{ const liveProj=projs.find(x=>x.id===proj.id)||proj; return h("select",{value:liveProj.status,onChange:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x));setProjFilter("All");},style:{background:(SC[liveProj.status]||"#94A3B8")+"18",color:SC[liveProj.status]||"#94A3B8",border:"1px solid "+(SC[liveProj.status]||"#94A3B8")+"44",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
         STATUSES.map(s=>h("option",{key:s,value:s},s))
-      ),
+      ); })(),
       h("div",{style:{flex:1}}),
       h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
       h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo],salePrice:proj.salePrice||"",notes:proj.notes||""});setEditingProj(proj.id);}}),

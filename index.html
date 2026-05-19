@@ -844,11 +844,31 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
 
 //  -- ProjEmpLog: groups project entries by employee with collapsible rows --
-function ProjEmpLog({entries, emps, onDelete}) {
-  const [open, setOpen] = React.useState({});
+function ProjEmpLog({entries, emps, onDelete, onEdit}) {
+  const [open, setOpen]     = React.useState({});
+  const [editId, setEditId] = React.useState(null);
+  const [editForm, setEditForm] = React.useState({date:"",start:"",end:""});
   const toggle = id => setOpen(p=>({...p,[id]:!p[id]}));
 
-  // Group by employee
+  function startEdit(e) {
+    const d = new Date(e.start);
+    const date = d.toISOString().slice(0,10);
+    const startT = new Date(e.start).toTimeString().slice(0,5);
+    const endT = new Date(e.end).toTimeString().slice(0,5);
+    setEditId(e.id);
+    setEditForm({date, start:startT, end:endT});
+  }
+  function saveEdit(e) {
+    const base = new Date(editForm.date);
+    const [sh,sm] = editForm.start.split(":").map(Number);
+    const [eh,em] = editForm.end.split(":").map(Number);
+    const newStart = new Date(base); newStart.setHours(sh,sm,0,0);
+    const newEnd   = new Date(base); newEnd.setHours(eh,em,0,0);
+    if(newEnd<=newStart) newEnd.setDate(newEnd.getDate()+1); // overnight
+    onEdit({...e, start:newStart.getTime(), end:newEnd.getTime()});
+    setEditId(null);
+  }
+
   const empMap = {};
   entries.forEach(e=>{
     if(!empMap[e.empId]) empMap[e.empId]={ms:0,items:[]};
@@ -861,25 +881,51 @@ function ProjEmpLog({entries, emps, onDelete}) {
     items: g.items.sort((a,b)=>b.start-a.start),
   })).sort((a,b)=>b.ms-a.ms);
 
+  const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:6,color:"#1C1917",padding:"4px 6px",fontSize:12,outline:"none"};
+
   return h("div",null,
     groups.map(g=>{
       const isOpen = !!open[g.emp&&g.emp.id];
-      return h("div",{key:g.emp?.id||"unknown",style:{marginBottom:4}},
-        // Employee row — tap to expand
+      return h("div",{key:(g.emp&&g.emp.id)||"unknown",style:{marginBottom:4}},
         h("div",{onClick:()=>g.emp&&toggle(g.emp.id),style:{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#F5F3F0",borderRadius:8,cursor:"pointer",borderLeft:"3px solid "+(g.emp?g.emp.color:"#888")}},
           h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:g.emp?g.emp.color:"#888"}},g.emp?g.emp.name:"Unknown"),
           h("span",{style:{fontSize:13,fontWeight:700,color:"#D97706"}},fmtHrs(g.ms)),
           h("span",{style:{fontSize:11,color:"#A8A29E",marginLeft:4}},isOpen?"▲":"▼")
         ),
-        // Expanded individual entries
         isOpen&&h("div",{style:{paddingLeft:10,paddingTop:3}},
           g.items.map(e=>
-            h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:"1px solid #F0EDE8"}},
-              h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
-              h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
-              h("span",{style:{flex:1}}),
-              h("span",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},fmtHrs(e.end-e.start)),
-              h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
+            h("div",{key:e.id,style:{borderBottom:"1px solid #F0EDE8"}},
+              editId===e.id
+                // Edit mode
+                ? h("div",{style:{padding:"8px",background:"#FFFBEB",borderRadius:6,margin:"4px 0"}},
+                    h("div",{style:{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:6}},
+                      h("div",null,
+                        h("div",{style:{fontSize:9,color:"#78716C",marginBottom:2}},"DATE"),
+                        h("input",{type:"date",value:editForm.date,onChange:e=>setEditForm(f=>({...f,date:e.target.value})),style:inp})
+                      ),
+                      h("div",null,
+                        h("div",{style:{fontSize:9,color:"#78716C",marginBottom:2}},"START"),
+                        h("input",{type:"time",value:editForm.start,onChange:e=>setEditForm(f=>({...f,start:e.target.value})),style:inp})
+                      ),
+                      h("div",null,
+                        h("div",{style:{fontSize:9,color:"#78716C",marginBottom:2}},"END"),
+                        h("input",{type:"time",value:editForm.end,onChange:e=>setEditForm(f=>({...f,end:e.target.value})),style:inp})
+                      )
+                    ),
+                    h("div",{style:{display:"flex",gap:6}},
+                      h("button",{onClick:()=>saveEdit(e),style:{background:"#1C1917",color:"#FFF",border:"none",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}},"✓ Save"),
+                      h("button",{onClick:()=>setEditId(null),style:{background:"transparent",color:"#78716C",border:"1px solid #E5E2DC",borderRadius:6,padding:"5px 10px",fontSize:12,cursor:"pointer"}},"Cancel")
+                    )
+                  )
+                // View mode
+                : h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px"}},
+                    h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
+                    h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
+                    h("span",{style:{flex:1}}),
+                    h("span",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},fmtHrs(e.end-e.start)),
+                    h("button",{onClick:ev=>{ev.stopPropagation();startEdit(e);},style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:12,padding:"0 4px"}},"✏"),
+                    h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
+                  )
             )
           )
         )
@@ -1244,7 +1290,7 @@ function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,proj
       h("div",{style:{padding:"10px 16px"}},
         projDone.length===0
           ? h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No hours logged yet.")
-          : h(ProjEmpLog,{entries:projDone,emps,onDelete:setConfirmEntry})
+          : h(ProjEmpLog,{entries:projDone,emps,onDelete:setConfirmEntry,onEdit:e=>setEntries(p=>p.map(x=>x.id===e.id?e:x))})
       )
     ),
 

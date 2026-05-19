@@ -2447,6 +2447,30 @@ function App(){
       setTimeout(()=>setToast(null),2800);
     }
   }
+  // Auto-poll every 30 seconds for entries and projects
+  React.useEffect(()=>{
+    if(!dbReady) return;
+    const poll = setInterval(async ()=>{
+      try {
+        const [e,p] = await Promise.all([dbLoad("entries"), dbLoad("projects")]);
+        if(e&&e.length>0){
+          // Only update if different from current
+          const newIds = new Set(e.map(x=>x.id));
+          const curIds = new Set(entries.map(x=>x.id));
+          const hasNew = e.some(x=>!curIds.has(x.id));
+          const hasDel = entries.some(x=>!newIds.has(x.id));
+          const hasChanged = e.some(x=>{ const cur=entries.find(c=>c.id===x.id); return cur&&cur.end!==x.end; });
+          if(hasNew||hasDel||hasChanged) setEntries(e);
+        }
+        if(p&&p.length>0){
+          const hasChanged = p.some(x=>{ const cur=projs.find(c=>c.id===x.id); return cur&&cur.status!==x.status; });
+          if(hasChanged) setProjs(p);
+        }
+      } catch(e) { /* silent fail */ }
+    }, 30000);
+    return ()=>clearInterval(poll);
+  },[dbReady]);
+
   async function manualSync() {
     setSyncing(true);
     try {

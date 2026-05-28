@@ -964,7 +964,6 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
   }
 
   // File handling — store as base64 in state
-  const [viewingFile, setViewingFile] = React.useState(null);
 
   async function handleFile(e) {
     const file = e.target.files[0];
@@ -1062,8 +1061,18 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
             h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
             h("div",{style:{fontSize:11,color:T.dim}},f.date)
           ),
-          // View button for images
-          (f.type.startsWith("image")||f.type==="application/pdf")&&h("button",{onClick:()=>setViewingFile(f),style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
+          // View and Download buttons
+          h("button",{onClick:()=>{
+            const blob = new Blob([f.data],{type:f.type||"application/octet-stream"});
+            const url = URL.createObjectURL(blob);
+            window.open(url,"_blank");
+          },style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
+          h("button",{onClick:()=>{
+            const a = document.createElement("a");
+            a.href = f.data;
+            a.download = f.name;
+            a.click();
+          },style:{fontSize:11,color:T.green,background:T.green+"12",border:"1px solid "+T.green+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"⬇"),
           h("button",{onClick:()=>removeFile(f.id),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
         )
       )

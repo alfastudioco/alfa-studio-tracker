@@ -1063,9 +1063,13 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
           ),
           // View and Download buttons
           h("button",{onClick:()=>{
-            const blob = new Blob([f.data],{type:f.type||"application/octet-stream"});
-            const url = URL.createObjectURL(blob);
-            window.open(url,"_blank");
+            // Open base64 data URL directly in new window
+            const w = window.open("","_blank");
+            if(f.type&&f.type.startsWith("image")){
+              w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+f.data+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
+            } else {
+              w.location.href = f.data;
+            }
           },style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
           h("button",{onClick:()=>{
             const a = document.createElement("a");

@@ -3009,7 +3009,16 @@ function App(){
                                   ? h("div",{style:{fontSize:13,fontWeight:700,color:T.text}},fmtCost(salePrice))
                                   : h("div",{style:{fontSize:13,color:T.border,letterSpacing:"0.15em"}},"– –")
                               ),
-                          profit!==null?stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red):stat("Profit",null,T.green)
+                          (()=>{
+                            const pmts=projPayments[proj.id]||[];
+                            const received=pmts.reduce((s,p)=>s+(+p.amount||0),0);
+                            const balance=salePrice>0?salePrice-received:null;
+                            return h("div",{style:{display:"contents"}},
+                              received>0&&stat("Deposit",fmtCost(received),T.blue),
+                              balance!==null&&stat(balance>0?"Owing":"Paid",balance>0?fmtCost(balance):"✓",balance>0?T.red:T.green),
+                              profit!==null?stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red):stat("Profit",null,T.green)
+                            );
+                          })()
                         );
                       })()
                     ),

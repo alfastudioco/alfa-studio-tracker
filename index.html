@@ -2481,7 +2481,7 @@ function App(){
     const total=items.reduce((s,i)=>s+(+i.amount||0),0);
     return {total,items};
   }
-  function entryCost(e){ const emp=emps.find(x=>x.id===e.empId); return emp&&emp.rate?(e.end-e.start)/3600000*emp.rate:0; }
+  function entryCost(e){ const emp=emps.find(x=>x.id===e.empId); const rate=emp?+emp.rate:0; return rate>0?(e.end-e.start)/3600000*rate:0; }
   function clockIn(eid,pid){
     if(activeFor(eid,pid))return;
     const now=Date.now();

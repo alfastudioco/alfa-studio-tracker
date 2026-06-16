@@ -2512,26 +2512,39 @@ function App(){
       setTimeout(()=>setToast(null),2800);
     }
   }
-  // Auto-poll every 30 seconds for entries and projects
+  // Auto-poll every 30 seconds — sync ALL data across devices
   React.useEffect(()=>{
     if(!dbReady) return;
     const poll = setInterval(async ()=>{
       try {
-        const [e,p] = await Promise.all([dbLoad("entries"), dbLoad("projects")]);
-        if(e&&e.length>0){
-          // Only update if different from current
-          const newIds = new Set(e.map(x=>x.id));
-          const curIds = new Set(entries.map(x=>x.id));
-          const hasNew = e.some(x=>!curIds.has(x.id));
-          const hasDel = entries.some(x=>!newIds.has(x.id));
-          const hasChanged = e.some(x=>{ const cur=entries.find(c=>c.id===x.id); return cur&&cur.end!==x.end; });
-          if(hasNew||hasDel||hasChanged) setEntries(e);
+        const [e,p,cg,cl,vn,pn,pp,co,pr] = await Promise.all([
+          dbLoad("entries"), dbLoad("projects"), dbLoad("cogs"),
+          dbLoad("clients"), dbLoad("vendors"), dbLoad("projnotes"),
+          dbLoad("projpayments"), dbLoad("clientorder"), dbLoad("proposals")
+        ]);
+        if(e&&e.length>0){ const cur=JSON.stringify(entries); const nxt=JSON.stringify(e); if(cur!==nxt) setEntries(e); }
+        if(p&&p.length>0){ const cur=JSON.stringify(projs); const nxt=JSON.stringify(p); if(cur!==nxt) setProjs(p); }
+        if(cg&&cg.length>0){
+          const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
+          if(JSON.stringify(obj)!==JSON.stringify(cogs)) setCogs(obj);
         }
-        if(p&&p.length>0){
-          const hasChanged = p.some(x=>{ const cur=projs.find(c=>c.id===x.id); return cur&&cur.status!==x.status; });
-          if(hasChanged) setProjs(p);
+        if(cl&&cl.length>0){ const d=dedupByName(cl); if(JSON.stringify(d)!==JSON.stringify(clients)) setClients(d); }
+        if(vn&&vn.length>0){ if(JSON.stringify(vn)!==JSON.stringify(vendors)) setVendors(vn); }
+        if(pn&&pn.length>0){
+          const obj={}; pn.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
+          if(JSON.stringify(obj)!==JSON.stringify(projNotes)) setProjNotes(obj);
         }
-      } catch(e) { /* silent fail */ }
+        if(pp&&pp.length>0){
+          const obj={}; pp.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
+          if(JSON.stringify(obj)!==JSON.stringify(projPayments)) setProjPayments(obj);
+        }
+        if(co&&co.length>0){ const ord=co.map(i=>i.name); if(JSON.stringify(ord)!==JSON.stringify(clientOrder)) setClientOrder(ord); }
+        if(pr&&pr.length>0){
+          // Merge with local generatedHtml
+          const merged=pr.map(p=>{ const lp=proposals.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml}:p; });
+          if(JSON.stringify(merged.map(p=>{const {generatedHtml,...r}=p;return r;}))!==JSON.stringify(proposals.map(p=>{const {generatedHtml,...r}=p;return r;}))) setProposals(merged);
+        }
+      } catch(err) { /* silent fail */ }
     }, 30000);
     return ()=>clearInterval(poll);
   },[dbReady]);

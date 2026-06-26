@@ -2298,7 +2298,11 @@ function App(){
         // Always merge Supabase + localStorage for proposals
         (()=>{
           const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
-          if(pr&&pr.length>0){
+          if(pd&&pd.length>0){
+          const obj={}; pd.forEach(i=>{ obj[i.projId]=i; });
+          if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
+        }
+        if(pr&&pr.length>0){
             // Use Supabase as source of truth but restore generatedHtml from localStorage
             const merged = pr.map(p=>{ const lp=local.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml,generatedAt:lp.generatedAt||p.generatedAt}:p; });
             // Also include any local proposals not yet in Supabase
@@ -2327,6 +2331,7 @@ function App(){
   const [currentUser,setCurrentUser] = useState(null);
   const [clientOrder,setClientOrder]   = useState([]);
   const [receiptSheet,setReceiptSheet] = useState(null);
+  const [workerFiles,setWorkerFiles]   = useState(null); // {projName, files}
   const [toast,setToast]               = useState(null); // {msg, color, empColor}
   const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
   const [adminTab,setAdminTab] = useState("projects");
@@ -2517,11 +2522,13 @@ function App(){
     if(!dbReady) return;
     const poll = setInterval(async ()=>{
       try {
-        const [e,p,cg,cl,vn,pn,pp,co,pr] = await Promise.all([
+        const [e,p,cg,cl,vn,pn,pp,co,pr,pd,em] = await Promise.all([
           dbLoad("entries"), dbLoad("projects"), dbLoad("cogs"),
           dbLoad("clients"), dbLoad("vendors"), dbLoad("projnotes"),
-          dbLoad("projpayments"), dbLoad("clientorder"), dbLoad("proposals")
+          dbLoad("projpayments"), dbLoad("clientorder"), dbLoad("proposals"),
+          dbLoad("projdetails"), dbLoad("employees")
         ]);
+        if(em&&em.length>0){ if(JSON.stringify(em)!==JSON.stringify(emps)) setEmps(em); }
         if(e&&e.length>0){ const cur=JSON.stringify(entries); const nxt=JSON.stringify(e); if(cur!==nxt) setEntries(e); }
         if(p&&p.length>0){ const cur=JSON.stringify(projs); const nxt=JSON.stringify(p); if(cur!==nxt) setProjs(p); }
         if(cg&&cg.length>0){
@@ -2539,6 +2546,10 @@ function App(){
           if(JSON.stringify(obj)!==JSON.stringify(projPayments)) setProjPayments(obj);
         }
         if(co&&co.length>0){ const ord=co.map(i=>i.name); if(JSON.stringify(ord)!==JSON.stringify(clientOrder)) setClientOrder(ord); }
+        if(pd&&pd.length>0){
+          const obj={}; pd.forEach(i=>{ obj[i.projId]=i; });
+          if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
+        }
         if(pr&&pr.length>0){
           // Merge with local generatedHtml
           const merged=pr.map(p=>{ const lp=proposals.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml}:p; });
@@ -2718,7 +2729,8 @@ function App(){
                               act
                                 ? h("button",{onClick:()=>clockOut(act.id),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,border:"1px solid "+emp.color+"88",background:emp.color+"33",color:emp.color,padding:"5px 8px"}},"Out")
                                 : h("button",{onClick:()=>clockIn(emp.id,proj.id),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,border:"1px solid "+emp.color+"44",background:emp.color+"12",color:emp.color,padding:"5px 8px"}},"In"),
-                              h("button",{onClick:()=>setReceiptSheet({empId:emp.id,projId:proj.id,projName:proj.name,empName:emp.name}),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:13,border:"1px solid "+T.border,background:T.faint,padding:"4px 7px",color:T.sub}},"🧾")
+                              h("button",{onClick:()=>setReceiptSheet({empId:emp.id,projId:proj.id,projName:proj.name,empName:emp.name}),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:13,border:"1px solid "+T.border,background:T.faint,padding:"4px 7px",color:T.sub}},"🧾"),
+                              (projDetails[proj.id]&&(projDetails[proj.id].files||[]).length>0)&&h("button",{onClick:()=>setWorkerFiles({projName:proj.name,files:projDetails[proj.id].files||[]}),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:13,border:"1px solid "+T.border,background:T.faint,padding:"4px 7px",color:T.sub}},"📁")
                             )
                           )
                         );
@@ -3344,6 +3356,41 @@ function App(){
 
     // SHEETS
     receiptSheet&&h(ReceiptSheet,{info:receiptSheet,cogs,setCogs,vendors,onClose:()=>setReceiptSheet(null)}),
+
+    // Worker files viewer modal
+    workerFiles&&h("div",{onClick:()=>setWorkerFiles(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:600,maxHeight:"80vh",display:"flex",flexDirection:"column",padding:"0 0 24px"}},
+        h("div",{style:{display:"flex",alignItems:"center",padding:"16px 20px",borderBottom:"1px solid "+T.line}},
+          h("span",{style:{flex:1,fontSize:15,fontWeight:700,color:T.text}},workerFiles.projName+" — Files"),
+          h("button",{onClick:()=>setWorkerFiles(null),style:{background:"none",border:"none",fontSize:22,color:T.dim,cursor:"pointer",lineHeight:1}},"×")
+        ),
+        h("div",{style:{overflowY:"auto",padding:"12px 20px",display:"flex",flexDirection:"column",gap:10}},
+          workerFiles.files.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:24}},"No files uploaded yet."),
+          workerFiles.files.map(f=>
+            h("div",{key:f.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.faint,borderRadius:10,border:"1px solid "+T.border}},
+              h("span",{style:{fontSize:20}},f.type&&f.type.startsWith("image")?"🖼️":"📄"),
+              h("div",{style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
+                h("div",{style:{fontSize:11,color:T.dim}},f.date||"")
+              ),
+              h("button",{onClick:()=>{
+                if(f.type&&f.type.startsWith("image")){
+                  const w=window.open("","_blank");
+                  w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+f.data+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
+                } else {
+                  const base64=f.data.split(",")[1];
+                  const binary=atob(base64);
+                  const bytes=new Uint8Array(binary.length);
+                  for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+                  const blob=new Blob([bytes],{type:"application/pdf"});
+                  window.open(URL.createObjectURL(blob),"_blank");
+                }
+              },style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 12px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33"}},"View")
+            )
+          )
+        )
+      )
+    ),
 
 
     logSheet&&h(Sheet,{title:"Log Hours",onClose:()=>setLogSheet(null)},

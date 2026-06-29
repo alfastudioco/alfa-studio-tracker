@@ -33,6 +33,29 @@ const SB_URL = "https://dasufgubibuutrpwounv.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhc3VmZ3ViaWJ1dXRycHdvdW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTA3NzUsImV4cCI6MjA5MDQ2Njc3NX0.Uq8mP5RW0MhLBvInhUW4mxQVNa3sH4ak-1WRU4KRp14";
 const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
+// Supabase Storage helpers
+const SB_STORAGE_URL = SB_URL+"/storage/v1";
+
+async function uploadFile(bucket, path, file, contentType) {
+  const r = await fetch(SB_STORAGE_URL+"/object/"+bucket+"/"+path, {
+    method: "POST",
+    headers: {...SB_HEADERS, "Content-Type": contentType, "x-upsert": "true"},
+    body: file
+  });
+  if(!r.ok){ const t=await r.text(); throw new Error("Upload failed: "+t); }
+  return SB_STORAGE_URL+"/object/public/"+bucket+"/"+path;
+}
+
+async function deleteFile(bucket, path) {
+  await fetch(SB_STORAGE_URL+"/object/"+bucket+"/"+path, {
+    method: "DELETE", headers: SB_HEADERS
+  });
+}
+
+function getFileUrl(bucket, path) {
+  return SB_STORAGE_URL+"/object/public/"+bucket+"/"+path;
+}
+
 async function dbLoad(table) {
   try {
     const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {
@@ -1062,27 +1085,8 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
             h("div",{style:{fontSize:11,color:T.dim}},f.date)
           ),
           // View and Download buttons
-          h("button",{onClick:()=>{
-            if(f.type&&f.type.startsWith("image")){
-              const w = window.open("","_blank");
-              w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+f.data+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
-            } else {
-              // Convert base64 to blob URL for PDFs (required by most browsers)
-              const base64 = f.data.split(",")[1];
-              const binary = atob(base64);
-              const bytes = new Uint8Array(binary.length);
-              for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
-              const blob = new Blob([bytes],{type:"application/pdf"});
-              const url = URL.createObjectURL(blob);
-              window.open(url,"_blank");
-            }
-          },style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
-          h("button",{onClick:()=>{
-            const a = document.createElement("a");
-            a.href = f.data;
-            a.download = f.name;
-            a.click();
-          },style:{fontSize:11,color:T.green,background:T.green+"12",border:"1px solid "+T.green+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"⬇"),
+          h("button",{onClick:()=>window.open(f.url||f.data,"_blank"),style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
+          h("a",{href:f.url||f.data,download:f.name,target:"_blank",style:{fontSize:11,color:T.green,background:T.green+"12",border:"1px solid "+T.green+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600,textDecoration:"none"}},"⬇"),
           h("button",{onClick:()=>removeFile(f.id),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
         )
       )
@@ -2291,15 +2295,31 @@ function App(){
           setProjPayments(ppObj);
         }
         if(pd&&pd.length>0){
+          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
           const pdObj={};
-          pd.forEach(i=>{ pdObj[i.projId]=i; });
+          pd.forEach(i=>{ 
+            const localEntry = local[i.projId]||{};
+            pdObj[i.projId]={...i, files:localEntry.files||[]};
+          });
+          // Also keep any local entries not in Supabase (new unsaved ones)
+          Object.entries(local).forEach(([projId,data])=>{
+            if(!pdObj[projId]) pdObj[projId]=data;
+          });
           setProjDetails(pdObj);
+        } else {
+          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
+          if(Object.keys(local).length>0) setProjDetails(local);
         }
         // Always merge Supabase + localStorage for proposals
         (()=>{
           const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
           if(pd&&pd.length>0){
-          const obj={}; pd.forEach(i=>{ obj[i.projId]=i; });
+          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
+          const obj={};
+          pd.forEach(i=>{ 
+            const localEntry = local[i.projId]||{};
+            obj[i.projId]={...i, files:localEntry.files||[]};
+          });
           if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
         }
         if(pr&&pr.length>0){
@@ -2445,7 +2465,11 @@ function App(){
   useEffect(()=>{
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
     if(isFirstRender.current.projDetails){isFirstRender.current.projDetails=false;return;}
-    const flat=Object.entries(projDetails).map(([projId,data])=>({id:String(projId),projId:+projId,...data}));
+    // Strip files (base64) before saving to Supabase — too large
+    const flat=Object.entries(projDetails).map(([projId,data])=>{
+      const {files,...rest}=data;
+      return {id:String(projId),projId:+projId,...rest};
+    });
     dbSave("projdetails", flat);
   },[projDetails]);
   useEffect(()=>{
@@ -2547,7 +2571,12 @@ function App(){
         }
         if(co&&co.length>0){ const ord=co.map(i=>i.name); if(JSON.stringify(ord)!==JSON.stringify(clientOrder)) setClientOrder(ord); }
         if(pd&&pd.length>0){
-          const obj={}; pd.forEach(i=>{ obj[i.projId]=i; });
+          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
+          const obj={};
+          pd.forEach(i=>{ 
+            const localEntry = local[i.projId]||{};
+            obj[i.projId]={...i, files:localEntry.files||[]};
+          });
           if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
         }
         if(pr&&pr.length>0){
@@ -3373,19 +3402,7 @@ function App(){
                 h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
                 h("div",{style:{fontSize:11,color:T.dim}},f.date||"")
               ),
-              h("button",{onClick:()=>{
-                if(f.type&&f.type.startsWith("image")){
-                  const w=window.open("","_blank");
-                  w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+f.data+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
-                } else {
-                  const base64=f.data.split(",")[1];
-                  const binary=atob(base64);
-                  const bytes=new Uint8Array(binary.length);
-                  for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
-                  const blob=new Blob([bytes],{type:"application/pdf"});
-                  window.open(URL.createObjectURL(blob),"_blank");
-                }
-              },style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 12px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33"}},"View")
+              h("button",{onClick:()=>window.open(f.url||f.data,"_blank"),style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 12px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33"}},"View")
             )
           )
         )

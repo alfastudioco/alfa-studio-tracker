@@ -58,7 +58,7 @@ function getFileUrl(bucket, path) {
 
 async function dbLoad(table) {
   try {
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*", {
       method: "GET",
       mode: "cors",
       headers: SB_HEADERS
@@ -2381,8 +2381,8 @@ function App(){
   const [confirmProj,setConfirmProj]   = useState(null);
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
   const [proposals,setProposals]       = useState(()=>{ try{return JSON.parse(localStorage.getItem("alfa_proposals")||"[]");}catch{return [];} });
-  const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
-  const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
+  const [projPayments,setProjPayments] = useState({}); // {projId:[{id,amount,type,date,note}]}
+  const [projNotes,setProjNotes]       = useState({});
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
   const [confirmEmp,setConfirmEmp]     = useState(null);
   const [confirmVendor,setConfirmVendor] = useState(null);
@@ -2553,8 +2553,8 @@ function App(){
           dbLoad("projdetails"), dbLoad("employees")
         ]);
         if(em&&em.length>0){ if(JSON.stringify(em)!==JSON.stringify(emps)) setEmps(em); }
-        if(e&&e.length>0){ const cur=JSON.stringify(entries); const nxt=JSON.stringify(e); if(cur!==nxt) setEntries(e); }
-        if(p&&p.length>0){ const cur=JSON.stringify(projs); const nxt=JSON.stringify(p); if(cur!==nxt) setProjs(p); }
+        if(e&&e.length>0){ if(JSON.stringify(e)!==JSON.stringify(entries)) setEntries(e); }
+        if(p&&p.length>0){ if(JSON.stringify(p)!==JSON.stringify(projs)) setProjs(p); }
         if(cg&&cg.length>0){
           const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
           if(JSON.stringify(obj)!==JSON.stringify(cogs)) setCogs(obj);
@@ -2571,16 +2571,12 @@ function App(){
         }
         if(co&&co.length>0){ const ord=co.map(i=>i.name); if(JSON.stringify(ord)!==JSON.stringify(clientOrder)) setClientOrder(ord); }
         if(pd&&pd.length>0){
-          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
+          const local=(() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
           const obj={};
-          pd.forEach(i=>{ 
-            const localEntry = local[i.projId]||{};
-            obj[i.projId]={...i, files:localEntry.files||[]};
-          });
+          pd.forEach(i=>{ const le=local[i.projId]||{}; obj[i.projId]={...i,files:le.files||[]}; });
           if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
         }
         if(pr&&pr.length>0){
-          // Merge with local generatedHtml
           const merged=pr.map(p=>{ const lp=proposals.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml}:p; });
           if(JSON.stringify(merged.map(p=>{const {generatedHtml,...r}=p;return r;}))!==JSON.stringify(proposals.map(p=>{const {generatedHtml,...r}=p;return r;}))) setProposals(merged);
         }
@@ -2660,10 +2656,10 @@ function App(){
   const secLabel={fontSize:11,fontWeight:700,color:T.dim,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:10};
 
   //  -- PIN screen -----------------------------------------
-  if(dbLoading) return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F8F7F4",gap:12}},
-    h("div",{style:{fontSize:28,marginBottom:4}},"⟳"),
-    h("div",{style:{fontSize:14,fontWeight:600,color:"#78716C"}}),"Syncing data…",
-    h("div",{style:{fontSize:12,color:"#A8A29E"}},"Connecting to database")
+  if(dbLoading) return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#1C1917",gap:16}},
+    h("div",{style:{fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.15em",textTransform:"uppercase"}},"Alfa Studio"),
+    h("div",{style:{width:32,height:32,border:"3px solid rgba(255,255,255,0.1)",borderTop:"3px solid #FFF",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}),
+    h("style",null,"@keyframes spin{to{transform:rotate(360deg)}}")
   );
 
   if(mode==="pin") return h(PinScreen,{
@@ -2684,7 +2680,7 @@ function App(){
           h("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:1}},
             h("div",{style:{fontSize:9,color:dbReady?T.green:T.amber,letterSpacing:"0.12em",textTransform:"uppercase"}},dbReady?"✦ LIVE":"⟳ CONNECTING…"),
             currentUser&&h("div",{style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",letterSpacing:"0.04em"}},currentUser.name),
-            mode==="admin"&&h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync")
+            mode==="admin"&&h("div",{style:{display:"flex",alignItems:"center",gap:6}},!dbReady&&h("span",{style:{fontSize:9,color:T.amber}}),"⟳",h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync"))
           )
         )
       ),

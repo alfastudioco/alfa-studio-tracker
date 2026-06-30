@@ -2259,7 +2259,9 @@ function App(){
   const [entries,setEntries] = useState([]);
   const [dbReady,setDbReady] = useState(false);
   const [dbLoading,setDbLoading] = useState(true);
-  const [syncing,setSyncing] = useState(false);
+  const [syncing,setSyncing]       = useState(false);
+  const [migrating,setMigrating]   = useState(false);
+  const [migrateMsg,setMigrateMsg] = useState("");
 
   // Load from Supabase on mount, fall back to localStorage
   useEffect(()=>{
@@ -2585,6 +2587,50 @@ function App(){
     return ()=>clearInterval(poll);
   },[dbReady]);
 
+  async function migrateFiles() {
+    setMigrating(true);
+    setMigrateMsg("Scanning for local files...");
+    try {
+      const local = JSON.parse(localStorage.getItem("alfa_projdetails")||"{}");
+      let uploaded = 0, skipped = 0;
+      for(const [projId, data] of Object.entries(local)) {
+        const files = data.files||[];
+        let changed = false;
+        const newFiles = [];
+        for(const f of files) {
+          if(f.url) { newFiles.push(f); skipped++; continue; } // already migrated
+          if(!f.data) { newFiles.push(f); continue; }
+          try {
+            setMigrateMsg("Uploading: "+f.name);
+            // Convert base64 to blob
+            const base64 = f.data.split(",")[1];
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+            const blob = new Blob([bytes],{type:f.type||"application/octet-stream"});
+            const ext = f.name.split(".").pop();
+            const path = "proj-"+projId+"/"+f.id+"."+ext;
+            const url = await uploadFile("project-files", path, blob, f.type||"application/octet-stream");
+            newFiles.push({...f, url, data:undefined});
+            uploaded++;
+            changed = true;
+          } catch(err) {
+            console.error("Failed to migrate", f.name, err);
+            newFiles.push(f); // keep as-is
+          }
+        }
+        if(changed) {
+          setProjDetails(p=>({...p,[projId]:{...data,files:newFiles}}));
+        }
+      }
+      setMigrateMsg("Done! "+uploaded+" file"+(uploaded!==1?"s":"")+" uploaded, "+skipped+" already synced.");
+      setTimeout(()=>{ setMigrateMsg(""); }, 4000);
+    } catch(err) {
+      setMigrateMsg("Error: "+err.message);
+    }
+    setMigrating(false);
+  }
+
   async function manualSync() {
     setSyncing(true);
     try {
@@ -2680,7 +2726,12 @@ function App(){
           h("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:1}},
             h("div",{style:{fontSize:9,color:dbReady?T.green:T.amber,letterSpacing:"0.12em",textTransform:"uppercase"}},dbReady?"✦ LIVE":"⟳ CONNECTING…"),
             currentUser&&h("div",{style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",letterSpacing:"0.04em"}},currentUser.name),
-            mode==="admin"&&h("div",{style:{display:"flex",alignItems:"center",gap:6}},!dbReady&&h("span",{style:{fontSize:9,color:T.amber}}),"⟳",h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync"))
+            mode==="admin"&&h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+  !dbReady&&h("span",{style:{fontSize:9,color:T.amber}},"⟳"),
+  migrateMsg&&h("span",{style:{fontSize:9,color:T.blue}},migrateMsg),
+  h("button",{onClick:migrateFiles,disabled:migrating,style:{fontSize:9,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},migrating?"uploading…":"⬆ migrate files"),
+  h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync")
+)
           )
         )
       ),

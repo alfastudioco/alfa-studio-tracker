@@ -2297,20 +2297,9 @@ function App(){
           setProjPayments(ppObj);
         }
         if(pd&&pd.length>0){
-          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
           const pdObj={};
-          pd.forEach(i=>{ 
-            const localEntry = local[i.projId]||{};
-            pdObj[i.projId]={...i, files:localEntry.files||[]};
-          });
-          // Also keep any local entries not in Supabase (new unsaved ones)
-          Object.entries(local).forEach(([projId,data])=>{
-            if(!pdObj[projId]) pdObj[projId]=data;
-          });
+          pd.forEach(i=>{ pdObj[i.projId]={...i}; });
           setProjDetails(pdObj);
-        } else {
-          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
-          if(Object.keys(local).length>0) setProjDetails(local);
         }
         // Always merge Supabase + localStorage for proposals
         (()=>{
@@ -2467,10 +2456,10 @@ function App(){
   useEffect(()=>{
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
     if(isFirstRender.current.projDetails){isFirstRender.current.projDetails=false;return;}
-    // Strip files (base64) before saving to Supabase — too large
+    // Save files but strip base64 data — keep URL references only
     const flat=Object.entries(projDetails).map(([projId,data])=>{
-      const {files,...rest}=data;
-      return {id:String(projId),projId:+projId,...rest};
+      const files=(data.files||[]).map(f=>{ const {data:_,...rest}=f; return rest; });
+      return {id:String(projId),projId:+projId,...data,files};
     });
     dbSave("projdetails", flat);
   },[projDetails]);
@@ -2573,9 +2562,8 @@ function App(){
         }
         if(co&&co.length>0){ const ord=co.map(i=>i.name); if(JSON.stringify(ord)!==JSON.stringify(clientOrder)) setClientOrder(ord); }
         if(pd&&pd.length>0){
-          const local=(() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
           const obj={};
-          pd.forEach(i=>{ const le=local[i.projId]||{}; obj[i.projId]={...i,files:le.files||[]}; });
+          pd.forEach(i=>{ obj[i.projId]={...i}; });
           if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
         }
         if(pr&&pr.length>0){

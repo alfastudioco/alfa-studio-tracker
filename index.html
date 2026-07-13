@@ -2456,9 +2456,12 @@ function App(){
   useEffect(()=>{
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
     if(isFirstRender.current.projDetails){isFirstRender.current.projDetails=false;return;}
-    // Save files but strip base64 data — keep URL references only
+    // Save files — strip base64 data only if URL exists, otherwise keep as-is
     const flat=Object.entries(projDetails).map(([projId,data])=>{
-      const files=(data.files||[]).map(f=>{ const {data:_,...rest}=f; return rest; });
+      const files=(data.files||[]).map(f=>{
+        if(f.url){ const {data:_,...rest}=f; return rest; } // has URL — safe to strip base64
+        return f; // no URL yet — keep base64 so file isn't lost
+      });
       return {id:String(projId),projId:+projId,...data,files};
     });
     dbSave("projdetails", flat);

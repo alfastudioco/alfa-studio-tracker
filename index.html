@@ -2300,6 +2300,8 @@ function App(){
           const pdObj={};
           pd.forEach(i=>{ pdObj[i.projId]={...i}; });
           setProjDetails(pdObj);
+        } else {
+          // Nothing in Supabase yet — keep whatever is in memory
         }
         // Always merge Supabase + localStorage for proposals
         (()=>{
@@ -2551,7 +2553,23 @@ function App(){
         if(pn&&pn.length>0){ const obj={}; pn.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjNotes(obj); }
         if(pp&&pp.length>0){ const obj={}; pp.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjPayments(obj); }
         if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
-        if(pd&&pd.length>0){ const obj={}; pd.forEach(i=>{ obj[i.projId]={...i}; }); setProjDetails(obj); }
+        if(pd&&pd.length>0){
+          const obj={};
+          pd.forEach(i=>{
+            // Keep existing files from memory (may have base64 or newer uploads)
+            const existing = projDetails[i.projId];
+            const existingFiles = existing ? (existing.files||[]) : [];
+            // Merge: use Supabase files if they have URLs, fallback to memory files
+            const sbFiles = i.files||[];
+            const mergedFiles = sbFiles.length>0 ? sbFiles : existingFiles;
+            obj[i.projId]={...i, files:mergedFiles};
+          });
+          // Keep any projDetails not in Supabase (local only)
+          Object.keys(projDetails).forEach(projId=>{
+            if(!obj[projId]) obj[projId]=projDetails[projId];
+          });
+          setProjDetails(obj);
+        }
         if(pr&&pr.length>0){
           // Restore generatedHtml from memory since it's not in Supabase
           const merged=pr.map(p=>{ const lp=proposals.find(x=>String(x.id)===String(p.id)); return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p; });

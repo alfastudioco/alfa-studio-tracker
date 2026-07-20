@@ -1276,11 +1276,12 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
 }
 
 //  -- ProjectExpanded --
-function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
+function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,defaultTab,
   activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
   T,secLabel,card,entryCost,projCogsTotals,currentUser,
   setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
   STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown,NotesLog}) {
+  const [activeTab, setActiveTab] = React.useState(defaultTab||"files");
 
   const [openSection,setOpenSection] = React.useState(null);
   const projDone = done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
@@ -3088,23 +3089,6 @@ function App(){
                         );
                       })(),
 
-                      // Quick action bar
-                      h("div",{style:{display:"flex",gap:5,borderTop:"1px solid "+T.line,marginTop:8,paddingTop:8}},
-                        [
-                          {icon:"📁",label:"Files",    section:"files"},
-                          {icon:"📝",label:"Notes",    section:"notes"},
-                          {icon:"💰",label:"Costs",    section:"costs"},
-                          {icon:"💳",label:"Pay",      section:"payments"},
-                          {icon:"⏱",label:"Log",      section:"log"},
-                        ].map(({icon,label,section})=>
-                          h("button",{key:section,onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section});},
-                            style:{flex:1,border:"1px solid "+T.border,background:T.surf,color:T.sub,borderRadius:8,padding:"5px 2px",fontSize:10,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:2}},
-                            h("span",{style:{fontSize:14}},icon),
-                            h("span",null,label)
-                          )
-                        )
-                      ),
-
                       // Numbers row — Hours · Labor · Materials
                       (()=>{
                         const ct=projCogsTotals(proj.id);
@@ -3453,53 +3437,6 @@ function App(){
         h("button",{onClick:()=>{setImportRows([{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]);setImportSheet(true);setFabOpen(false);},style:{background:T.surf,border:"1px solid "+T.border,borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:600,color:T.text,boxShadow:"0 2px 12px rgba(0,0,0,0.1)",cursor:"pointer",whiteSpace:"nowrap"}},"↑ Batch Import")
       ),
       h("button",{onClick:()=>setFabOpen(o=>!o),style:{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:T.text,color:"#FFF",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90,transform:fabOpen?"rotate(45deg)":"rotate(0deg)",transition:"transform 0.2s"}},"+")
-    ),
-
-    // Quick Sheet modal
-    quickSheet&&h("div",{onClick:()=>setQuickSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
-      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column"}},
-        // Header
-        h("div",{style:{display:"flex",alignItems:"center",padding:"14px 20px",borderBottom:"1px solid "+T.line}},
-          h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,position:"absolute",top:8,left:"50%",transform:"translateX(-50%)"}}),
-          h("span",{style:{flex:1,fontSize:15,fontWeight:700,color:T.text}},(()=>{
-            const p=projs.find(x=>x.id===quickSheet.projId);
-            return p?p.name:"Project";
-          })()),
-          h("span",{style:{fontSize:12,color:T.blue,fontWeight:600,textTransform:"capitalize"}},quickSheet.section),
-          h("button",{onClick:()=>setQuickSheet(null),style:{background:"none",border:"none",fontSize:22,color:T.dim,cursor:"pointer",lineHeight:1,marginLeft:12}},"×")
-        ),
-        // Content
-        h("div",{style:{overflowY:"auto",flex:1,padding:"12px 0"}},
-          (()=>{
-            const proj = projs.find(x=>x.id===quickSheet.projId);
-            if(!proj) return null;
-            const projDone = entries.filter(e=>e.end&&e.projId===proj.id);
-
-            if(quickSheet.section==="files") return h(ProjectDetails,{
-              projId:proj.id,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel
-            });
-            if(quickSheet.section==="notes") return h(NotesLog,{
-              projId:proj.id,projNotes,setProjNotes,currentUser,T,line:T.line,faint:T.faint,secLabel
-            });
-            if(quickSheet.section==="costs") return h("div",{style:{padding:"0 16px"}},
-              h("button",{onClick:()=>{setQuickSheet(null);setCogsSheet(proj.id);},
-                style:{width:"100%",background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:10,fontSize:13,fontWeight:600,color:T.blue,cursor:"pointer",marginBottom:8}},
-                "+ Add Cost / Scan Invoice"
-              ),
-              h(CogsVendorList,{items:cogs[proj.id]||[],onEdit:()=>{},onDelete:()=>{}})
-            );
-            if(quickSheet.section==="payments") return h(PaymentsPanel,{
-              projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T,line:T.line,faint:T.faint
-            });
-            if(quickSheet.section==="log") return h("div",{style:{padding:"0 8px"}},
-              h(ProjEmpLog,{entries:projDone,emps,
-                onDelete:e=>setConfirmEntry(e),
-                onEdit:e=>setEntries(p=>p.map(x=>x.id===e.id?e:x))
-              })
-            );
-          })()
-        )
-      )
     ),
 
     // Toast notification

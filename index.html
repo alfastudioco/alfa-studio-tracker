@@ -557,12 +557,13 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
   const [scanning, setScanning] = React.useState(false);
   const [confirmCogs, setConfirmCogs] = React.useState(null); // item to delete
   const [scanPreview, setScanPreview] = React.useState(null); // base64 image
+  const [scanOriginal, setScanOriginal] = React.useState(null); // {name, type, data} original file
   const [scanError, setScanError] = React.useState("");
 
   async function handleInvoiceUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
-    setScanning(true); setScanError(""); setScanPreview(null);
+    setScanning(true); setScanError(""); setScanPreview(null); setScanOriginal(null);
     try {
       const isPDF = file.type === "application/pdf";
 
@@ -586,6 +587,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         base64 = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
         mediaType = "image/jpeg";
         setScanPreview("data:image/jpeg;base64," + base64);
+        setScanOriginal({name:file.name, type:"application/pdf", data:null, isPdf:true});
       } else {
         // Compress image before sending — mobile photos can be 5-10MB
         const compressed = await new Promise((res,rej) => {
@@ -611,6 +613,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         base64 = compressed;
         mediaType = "image/jpeg";
         setScanPreview("data:image/jpeg;base64," + base64);
+        setScanOriginal({name:file.name, type:file.type, data:"data:image/jpeg;base64,"+base64});
       }
 
       // Call Claude API to extract invoice data
@@ -708,7 +711,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
   function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
-    const item = {id:editId||Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
+    const item = {id:editId||Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", receipt:scanOriginal||undefined};
     setCogs(p=>({...p,[projId]: editId
       ? (p[projId]||[]).map(i=>i.id===editId?item:i)
       : [...(p[projId]||[]), item]
@@ -947,7 +950,10 @@ function ProjEmpLog({entries, emps, onDelete, onEdit}) {
                     h("span",{style:{flex:1}}),
                     h("span",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},fmtHrs(e.end-e.start)),
                     h("button",{onClick:ev=>{ev.stopPropagation();startEdit(e);},style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:12,padding:"0 4px"}},"✏"),
-                    h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
+                    e.receipt&&h("button",{onClick:ev=>{ev.stopPropagation();
+              if(e.receipt.data){const w=window.open("","_blank");w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+e.receipt.data+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');}
+            },style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:12,padding:"0 3px"}},"🧾"),
+            h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
                   )
             )
           )
@@ -2342,7 +2348,10 @@ function App(){
   const [clientOrder,setClientOrder]   = useState([]);
   const [receiptSheet,setReceiptSheet] = useState(null);
   const [workerFiles,setWorkerFiles]   = useState(null);
-  const [quickSheet,setQuickSheet]     = useState(null); // {projId, section: 'files'|'notes'|'costs'|'payments'|'log'} // {projName, files}
+  const [quickSheet,setQuickSheet]     = useState(null);
+  const [addNoteSheet,setAddNoteSheet] = useState(null); // projId
+  const [addPhotoSheet,setAddPhotoSheet] = useState(null); // projId
+  const [quickNote,setQuickNote]       = useState(""); // {projId, section: 'files'|'notes'|'costs'|'payments'|'log'} // {projName, files}
   const [toast,setToast]               = useState(null); // {msg, color, empColor}
   const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
   const [adminTab,setAdminTab] = useState("projects");
@@ -2542,7 +2551,16 @@ function App(){
           dbLoad("projpayments"), dbLoad("clientorder"), dbLoad("proposals"),
           dbLoad("projdetails"), dbLoad("employees")
         ]);
-        if(em&&em.length>0) setEmps(em);
+        if(em&&em.length>0){
+          // Preserve locally updated rates — merge with Supabase
+          const merged = em.map(sbEmp=>{
+            const local = emps.find(x=>x.id===sbEmp.id);
+            if(!local) return sbEmp;
+            // Keep local rate if it differs (user just updated it)
+            return {...sbEmp, rate: local.rate!==sbEmp.rate ? local.rate : sbEmp.rate};
+          });
+          if(JSON.stringify(merged)!==JSON.stringify(emps)) setEmps(merged);
+        }
         if(e&&e.length>0) setEntries(e);
         if(p&&p.length>0) setProjs(p);
         if(cg&&cg.length>0){ const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setCogs(obj); }
@@ -3146,6 +3164,16 @@ function App(){
                         );
                       })()
                     ),
+                    // Quick Add bar — always visible on card
+                    !isExp&&h("div",{style:{display:"flex",borderTop:"1px solid "+T.line}},
+                      h("button",{onClick:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);},style:{flex:1,padding:"9px",fontSize:12,fontWeight:600,color:T.sub,background:T.surf,border:"none",borderRight:"1px solid "+T.line,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}},
+                        "📷 Add Photo"
+                      ),
+                      h("button",{onClick:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);},style:{flex:1,padding:"9px",fontSize:12,fontWeight:600,color:T.sub,background:T.surf,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}},
+                        "📝 Add Note"
+                      )
+                    ),
+
                     isExp&&h("div",null,
                       // Status selector lives here where proj is always fresh
                       h("div",{style:{padding:"8px 16px",borderTop:"1px solid "+T.line,display:"flex",alignItems:"center",gap:8,background:T.faint}},
@@ -3433,6 +3461,52 @@ function App(){
         h("button",{onClick:()=>{setImportRows([{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]);setImportSheet(true);setFabOpen(false);},style:{background:T.surf,border:"1px solid "+T.border,borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:600,color:T.text,boxShadow:"0 2px 12px rgba(0,0,0,0.1)",cursor:"pointer",whiteSpace:"nowrap"}},"↑ Batch Import")
       ),
       h("button",{onClick:()=>setFabOpen(o=>!o),style:{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:T.text,color:"#FFF",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90,transform:fabOpen?"rotate(45deg)":"rotate(0deg)",transition:"transform 0.2s"}},"+")
+    ),
+
+    // Add Note sheet
+    addNoteSheet&&h("div",{onClick:()=>setAddNoteSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px 32px"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:12}},(projs.find(p=>p.id===addNoteSheet)||{}).name+" — Add Note"),
+        h("textarea",{autoFocus:true,value:quickNote,onChange:e=>setQuickNote(e.target.value),
+          placeholder:"Type your note here…",
+          style:{width:"100%",border:"1px solid "+T.border,borderRadius:8,padding:"10px 12px",fontSize:14,outline:"none",resize:"none",height:100,background:T.faint,color:T.text,fontFamily:"inherit",boxSizing:"border-box",marginBottom:12}}),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>{setAddNoteSheet(null);setQuickNote("");},style:{borderRadius:8,cursor:"pointer",fontSize:13,padding:"8px 16px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+          h("button",{onClick:()=>{
+            if(!quickNote.trim()) return;
+            const note={id:Date.now(),text:quickNote.trim(),author:currentUser?.name||"Owner",ts:Date.now()};
+            setProjNotes(p=>({...p,[addNoteSheet]:[...(p[addNoteSheet]||[]),note]}));
+            setAddNoteSheet(null);setQuickNote("");
+          },style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:T.text,color:"#FFF",border:"none"}},"Save Note")
+        )
+      )
+    ),
+
+    // Add Photo sheet
+    addPhotoSheet&&h("div",{onClick:()=>setAddPhotoSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px 32px"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}},(projs.find(p=>p.id===addPhotoSheet)||{}).name+" — Add File"),
+        h("div",{style:{fontSize:12,color:T.sub,marginBottom:16}},"Photo or PDF"),
+        h("label",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,border:"2px dashed "+T.border,borderRadius:12,padding:"32px 20px",cursor:"pointer",background:T.faint}},
+          h("input",{type:"file",accept:"image/*,application/pdf",style:{display:"none"},onChange:async e=>{
+            const file=e.target.files[0]; if(!file) return;
+            const ext=file.name.split(".").pop();
+            const fileId=Date.now();
+            const path="proj-"+addPhotoSheet+"/"+fileId+"."+ext;
+            try{
+              const url=await uploadFile("project-files",path,file,file.type);
+              const newFile={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
+              setProjDetails(p=>({...p,[addPhotoSheet]:{...(p[addPhotoSheet]||{}),files:[...((p[addPhotoSheet]||{}).files||[]),newFile]}}));
+              setAddPhotoSheet(null);
+            } catch(err){alert("Upload failed: "+err.message);}
+            e.target.value="";
+          }}),
+          h("span",{style:{fontSize:32}},"📷"),
+          h("span",{style:{fontSize:14,fontWeight:600,color:T.sub}},"Tap to choose photo or PDF")
+        )
+      )
     ),
 
     // Toast notification

@@ -2399,31 +2399,28 @@ function App(){
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
-    if(isFirstRender.current.emps){ isFirstRender.current.emps=false; return; }
     dbSave("employees", emps);
   },[emps]);
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}
-    if(isFirstRender.current.projs){ isFirstRender.current.projs=false; return; }
     dbSave("projects", projs);
   },[projs]);
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}
-    if(isFirstRender.current.entries){ isFirstRender.current.entries=false; return; }
     dbSave("entries", entries);
   },[entries]);
   useEffect(()=>{
     try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{}
-    if(isFirstRender.current.cogs){isFirstRender.current.cogs=false;return;}
+    // save always fires
     const cogsFlat=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
     dbSave("cogs", cogsFlat);
   },[cogs]);
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{}
-    if(isFirstRender.current.vendors){isFirstRender.current.vendors=false;return;}
+    // save always fires
     dbSave("vendors", vendors);
   },[vendors]);
 
@@ -2435,27 +2432,26 @@ function App(){
       return;
     }
     try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{}
-    if(isFirstRender.current.clients){isFirstRender.current.clients=false;return;}
     dbSave("clients", clients);
   },[clients]);
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{}
-    if(isFirstRender.current.projNotes){isFirstRender.current.projNotes=false;return;}
+    // save always fires
     const notesFlat=Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
     dbSave("projnotes", notesFlat);
   },[projNotes]);
 
   useEffect(()=>{
     try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{}
-    if(isFirstRender.current.clientOrder){isFirstRender.current.clientOrder=false;return;}
+    // save always fires
     dbSave("clientorder", clientOrder.map(name=>({id:name,name})));
   },[clientOrder]);
 
   // Client profiles are managed manually in the Clients tab
   useEffect(()=>{
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
-    if(isFirstRender.current.projDetails){isFirstRender.current.projDetails=false;return;}
+    // save always fires
     // Save files — strip base64 data only if URL exists, otherwise keep as-is
     const flat=Object.entries(projDetails).map(([projId,data])=>{
       const files=(data.files||[]).map(f=>{
@@ -2468,7 +2464,7 @@ function App(){
   },[projDetails]);
   useEffect(()=>{
     try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
-    if(isFirstRender.current.projPayments){isFirstRender.current.projPayments=false;return;}
+    // save always fires
     const flat=Object.entries(projPayments).flatMap(([projId,pmts])=>pmts.map(p=>({...p,projId:+projId})));
     dbSave("projpayments", flat);
   },[projPayments]);
@@ -2476,7 +2472,7 @@ function App(){
   useEffect(()=>{
     if(proposals.length===0) return;
     try{localStorage.setItem("alfa_proposals",JSON.stringify(proposals));}catch{}
-    if(isFirstRender.current.proposals){isFirstRender.current.proposals=false;return;}
+    // save always fires
     const forDb = proposals.map(p=>{ const {generatedHtml,...rest}=p; return rest; });
     dbSave("proposals", forDb);
   },[proposals]);
@@ -2546,32 +2542,20 @@ function App(){
           dbLoad("projpayments"), dbLoad("clientorder"), dbLoad("proposals"),
           dbLoad("projdetails"), dbLoad("employees")
         ]);
-        if(em&&em.length>0){ if(JSON.stringify(em)!==JSON.stringify(emps)) setEmps(em); }
-        if(e&&e.length>0){ if(JSON.stringify(e)!==JSON.stringify(entries)) setEntries(e); }
-        if(p&&p.length>0){ if(JSON.stringify(p)!==JSON.stringify(projs)) setProjs(p); }
-        if(cg&&cg.length>0){
-          const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
-          if(JSON.stringify(obj)!==JSON.stringify(cogs)) setCogs(obj);
-        }
-        if(cl&&cl.length>0){ const d=dedupByName(cl); if(JSON.stringify(d)!==JSON.stringify(clients)) setClients(d); }
-        if(vn&&vn.length>0){ if(JSON.stringify(vn)!==JSON.stringify(vendors)) setVendors(vn); }
-        if(pn&&pn.length>0){
-          const obj={}; pn.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
-          if(JSON.stringify(obj)!==JSON.stringify(projNotes)) setProjNotes(obj);
-        }
-        if(pp&&pp.length>0){
-          const obj={}; pp.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); });
-          if(JSON.stringify(obj)!==JSON.stringify(projPayments)) setProjPayments(obj);
-        }
-        if(co&&co.length>0){ const ord=co.map(i=>i.name); if(JSON.stringify(ord)!==JSON.stringify(clientOrder)) setClientOrder(ord); }
-        if(pd&&pd.length>0){
-          const obj={};
-          pd.forEach(i=>{ obj[i.projId]={...i}; });
-          if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
-        }
+        if(em&&em.length>0) setEmps(em);
+        if(e&&e.length>0) setEntries(e);
+        if(p&&p.length>0) setProjs(p);
+        if(cg&&cg.length>0){ const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setCogs(obj); }
+        if(cl&&cl.length>0) setClients(dedupByName(cl));
+        if(vn&&vn.length>0) setVendors(vn);
+        if(pn&&pn.length>0){ const obj={}; pn.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjNotes(obj); }
+        if(pp&&pp.length>0){ const obj={}; pp.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjPayments(obj); }
+        if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
+        if(pd&&pd.length>0){ const obj={}; pd.forEach(i=>{ obj[i.projId]={...i}; }); setProjDetails(obj); }
         if(pr&&pr.length>0){
-          const merged=pr.map(p=>{ const lp=proposals.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml}:p; });
-          if(JSON.stringify(merged.map(p=>{const {generatedHtml,...r}=p;return r;}))!==JSON.stringify(proposals.map(p=>{const {generatedHtml,...r}=p;return r;}))) setProposals(merged);
+          // Restore generatedHtml from memory since it's not in Supabase
+          const merged=pr.map(p=>{ const lp=proposals.find(x=>String(x.id)===String(p.id)); return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p; });
+          setProposals(merged);
         }
       } catch(err) { /* silent fail */ }
     }, 30000);
@@ -3093,8 +3077,8 @@ function App(){
                                     type:"number",min:0,step:0.01,autoFocus:true,
                                     defaultValue:salePrice||"",
                                     placeholder:"0.00",
-                                    onBlur:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value}:x));setEditSaleProj(null);},
-                                    onKeyDown:e=>{if(e.key==="Enter"||e.key==="Escape"){setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value}:x));setEditSaleProj(null);}},
+                                    onBlur:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value,updatedAt:Date.now()}:x));setEditSaleProj(null);},
+                                    onKeyDown:e=>{if(e.key==="Enter"||e.key==="Escape"){setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value,updatedAt:Date.now()}:x));setEditSaleProj(null);}},
                                     style:{flex:1,background:"transparent",border:"none",borderBottom:"1px solid "+T.border,color:T.text,fontSize:13,fontWeight:600,outline:"none",width:"100%",padding:"1px 0"}
                                   })
                                 )
@@ -3123,7 +3107,7 @@ function App(){
                     isExp&&h("div",null,
                       // Status selector lives here where proj is always fresh
                       h("div",{style:{padding:"8px 16px",borderTop:"1px solid "+T.line,display:"flex",alignItems:"center",gap:8,background:T.faint}},
-                        h("select",{value:proj.status,onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x)),style:{background:(SC[proj.status]||"#94A3B8")+"18",color:SC[proj.status]||"#94A3B8",border:"1px solid "+(SC[proj.status]||"#94A3B8")+"44",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none"}},
+                        h("select",{value:proj.status,onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value,updatedAt:Date.now()}:x)),style:{background:(SC[proj.status]||"#94A3B8")+"18",color:SC[proj.status]||"#94A3B8",border:"1px solid "+(SC[proj.status]||"#94A3B8")+"44",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none"}},
                           STATUSES.map(s=>h("option",{key:s,value:s},s))
                         ),
                         h("div",{style:{flex:1}}),

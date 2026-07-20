@@ -2349,6 +2349,7 @@ function App(){
   const [receiptSheet,setReceiptSheet] = useState(null);
   const [workerFiles,setWorkerFiles]   = useState(null);
   const [quickSheet,setQuickSheet]     = useState(null);
+  const [menuSheet,setMenuSheet]       = useState(null); // projId for ··· menu
   const [addNoteSheet,setAddNoteSheet] = useState(null); // projId
   const [addPhotoSheet,setAddPhotoSheet] = useState(null); // projId
   const [quickNote,setQuickNote]       = useState(""); // {projId, section: 'files'|'notes'|'costs'|'payments'|'log'} // {projName, files}
@@ -3166,32 +3167,40 @@ function App(){
                     ),
                     // Quick Add bar — always visible on card
                     !isExp&&h("div",{style:{display:"flex",borderTop:"1px solid "+T.line}},
-                      h("button",{onClick:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);},style:{flex:1,padding:"9px",fontSize:12,fontWeight:600,color:T.sub,background:T.surf,border:"none",borderRight:"1px solid "+T.line,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}},
-                        "📷 Add Photo"
+                      h("button",{onClick:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);},style:{flex:1,padding:"8px 4px",fontSize:11,fontWeight:600,color:T.sub,background:T.surf,border:"none",borderRight:"1px solid "+T.line,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}},
+                        "📷","Add Photo"
                       ),
-                      h("button",{onClick:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);},style:{flex:1,padding:"9px",fontSize:12,fontWeight:600,color:T.sub,background:T.surf,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}},
-                        "📝 Add Note"
+                      h("button",{onClick:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);},style:{flex:1,padding:"8px 4px",fontSize:11,fontWeight:600,color:T.sub,background:T.surf,border:"none",borderRight:"1px solid "+T.line,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}},
+                        "📝","Add Note"
+                      ),
+                      h("button",{onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"selections"});},style:{flex:1,padding:"8px 4px",fontSize:11,fontWeight:600,color:T.sub,background:T.surf,border:"none",borderRight:"1px solid "+T.line,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}},
+                        "🎨","Selections"
+                      ),
+                      h("button",{onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"files"});},style:{flex:1,padding:"8px 4px",fontSize:11,fontWeight:600,color:T.sub,background:T.surf,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}},
+                        "📁","Files"
                       )
                     ),
 
-                    isExp&&h("div",null,
-                      // Status selector lives here where proj is always fresh
-                      h("div",{style:{padding:"8px 16px",borderTop:"1px solid "+T.line,display:"flex",alignItems:"center",gap:8,background:T.faint}},
-                        h("select",{value:proj.status,onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value,updatedAt:Date.now()}:x)),style:{background:(SC[proj.status]||"#94A3B8")+"18",color:SC[proj.status]||"#94A3B8",border:"1px solid "+(SC[proj.status]||"#94A3B8")+"44",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none"}},
-                          STATUSES.map(s=>h("option",{key:s,value:s},s))
-                        ),
-                        h("div",{style:{flex:1}}),
-                        h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
-                        h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo],salePrice:proj.salePrice||"",notes:proj.notes||""});setEditingProj(proj.id);}}),
-                        h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmProj(proj)})
-                      ),
-                      h(ProjectExpanded,{
-                        proj,projs,setProjs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
-                        activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
-                        T,secLabel,card,entryCost,projCogsTotals,currentUser,
-                        setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
-                        STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown,NotesLog
-                      })
+                    // 2-row quick action grid
+                    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderTop:"1px solid "+T.line}},
+                      [
+                        {icon:"📷",label:"Photo",   onClick:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);}},
+                        {icon:"📝",label:"Note",    onClick:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);}},
+                        {icon:"🎨",label:"Selects", onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"selections"});}},
+                        {icon:"📁",label:"Files",   onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"files"});}},
+                        {icon:"⏱", label:"Time",    onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"timelog"});}},
+                        {icon:"💰",label:"Costs",   onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);}},
+                        {icon:"💳",label:"Pay",     onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"payments"});}},
+                        {icon:"📋",label:"Log",     onClick:e=>{e.stopPropagation();setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}},
+                      ].map(({icon,label,onClick},i)=>
+                        h("button",{key:label,onClick,
+                          style:{padding:"8px 4px",fontSize:10,fontWeight:500,color:T.sub,background:T.surf,border:"none",
+                            borderRight:(i+1)%4===0?"none":"1px solid "+T.line,
+                            borderTop: i>=4?"1px solid "+T.line:"none",
+                            cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:3}},
+                          h("span",{style:{fontSize:13}},icon),label
+                        )
+                      )
                     )
                   )
                 );
@@ -3461,6 +3470,58 @@ function App(){
         h("button",{onClick:()=>{setImportRows([{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]);setImportSheet(true);setFabOpen(false);},style:{background:T.surf,border:"1px solid "+T.border,borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:600,color:T.text,boxShadow:"0 2px 12px rgba(0,0,0,0.1)",cursor:"pointer",whiteSpace:"nowrap"}},"↑ Batch Import")
       ),
       h("button",{onClick:()=>setFabOpen(o=>!o),style:{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:T.text,color:"#FFF",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:90,transform:fabOpen?"rotate(45deg)":"rotate(0deg)",transition:"transform 0.2s"}},"+")
+    ),
+
+    // ··· menu sheet
+    menuSheet&&h("div",{onClick:()=>setMenuSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 0 32px"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 8px"}}),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.text,padding:"0 20px 12px"}},
+          (projs.find(p=>p.id===menuSheet)||{}).name
+        ),
+        [
+          {label:"✏ Edit project", onClick:()=>{
+            const p=projs.find(x=>x.id===menuSheet);
+            if(p){setPf({name:p.name,client:p.client,status:p.status,deadline:p.deadline,assignedTo:[...p.assignedTo],salePrice:p.salePrice||"",notes:p.notes||""});setEditingProj(p.id);}
+            setMenuSheet(null);
+          }},
+          {label:"+ Log hours", onClick:()=>{
+            setLf({empId:"",projId:String(menuSheet),hours:"",date:new Date().toISOString().slice(0,10)});
+            setLogSheet({});setMenuSheet(null);
+          }},
+          {label:"Delete project", danger:true, onClick:()=>{
+            const p=projs.find(x=>x.id===menuSheet);
+            if(p){setConfirmProj(p);}setMenuSheet(null);
+          }},
+        ].map(({label,onClick,danger})=>
+          h("div",{key:label,onClick,style:{padding:"14px 20px",fontSize:14,color:danger?"#DC2626":T.text,cursor:"pointer",borderTop:"1px solid "+T.line}},label)
+        )
+      )
+    ),
+
+    // Quick Sheet for Selections and Files
+    quickSheet&&h("div",{onClick:()=>setQuickSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"10px auto"}}),
+        h("div",{style:{display:"flex",alignItems:"center",padding:"0 20px 12px"}},
+          h("span",{style:{flex:1,fontSize:15,fontWeight:700,color:T.text}},(()=>{const p=projs.find(x=>x.id===quickSheet.projId);return p?p.name:"";})()+" — "+(quickSheet.section==="files"?"Files":"Selections")),
+          h("button",{onClick:()=>setQuickSheet(null),style:{background:"none",border:"none",fontSize:22,color:T.dim,cursor:"pointer"}},"×")
+        ),
+        h("div",{style:{overflowY:"auto",flex:1}},
+          (()=>{
+            const proj=projs.find(x=>x.id===quickSheet.projId);
+            if(!proj) return null;
+            const projDone=entries.filter(e=>e.end&&e.projId===proj.id);
+            if(quickSheet.section==="timelog") return h("div",{style:{padding:"8px"}},
+              h(ProjEmpLog,{entries:projDone,emps,onDelete:e=>setConfirmEntry(e),onEdit:e=>setEntries(p=>p.map(x=>x.id===e.id?e:x))})
+            );
+            if(quickSheet.section==="payments") return h(PaymentsPanel,{
+              projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T,line:T.line,faint:T.faint
+            });
+            return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel});
+          })()
+        )
+      )
     ),
 
     // Add Note sheet

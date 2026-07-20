@@ -2372,7 +2372,7 @@ function App(){
   const [showQuickClient,setShowQuickClient] = useState(false);
   const [confirmEntry,setConfirmEntry] = useState(null);
   const [confirmProj,setConfirmProj]   = useState(null);
-  const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
+  const [projDetails,setProjDetails]   = useState({});
   const [proposals,setProposals]       = useState(()=>{ try{return JSON.parse(localStorage.getItem("alfa_proposals")||"[]");}catch{return [];} });
   const [projPayments,setProjPayments] = useState({}); // {projId:[{id,amount,type,date,note}]}
   const [projNotes,setProjNotes]       = useState({});
@@ -2410,19 +2410,20 @@ function App(){
   },[projs]);
 
   useEffect(()=>{
+    if(entries.length===0) return;
     try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}
     dbSave("entries", entries);
   },[entries]);
   useEffect(()=>{
+    if(Object.keys(cogs).length===0) return;
     try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{}
-    // save always fires
     const cogsFlat=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
     dbSave("cogs", cogsFlat);
   },[cogs]);
 
   useEffect(()=>{
+    if(vendors.length===0) return;
     try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{}
-    // save always fires
     dbSave("vendors", vendors);
   },[vendors]);
 
@@ -2434,43 +2435,43 @@ function App(){
       return;
     }
     try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{}
+    if(clients.length===0) return;
     dbSave("clients", clients);
   },[clients]);
 
   useEffect(()=>{
+    if(Object.keys(projNotes).length===0) return;
     try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{}
-    // save always fires
     const notesFlat=Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
     dbSave("projnotes", notesFlat);
   },[projNotes]);
 
   useEffect(()=>{
+    if(clientOrder.length===0) return;
     try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{}
-    // save always fires
     dbSave("clientorder", clientOrder.map(name=>({id:name,name})));
   },[clientOrder]);
 
   // Client profiles are managed manually in the Clients tab
   useEffect(()=>{
+    if(Object.keys(projDetails).length===0) return; // don't save empty state
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
-    // save always fires
     // Save files — strip base64 data only if URL exists, otherwise keep as-is
     const flat=Object.entries(projDetails).map(([projId,data])=>{
       const files=(data.files||[]).map(f=>{
-        if(f.url){ const {data:_,...rest}=f; return rest; } // has URL — safe to strip base64
-        return f; // no URL yet — keep base64 so file isn't lost
+        if(f.url){ const {data:_,...rest}=f; return rest; }
+        return f;
       });
       return {id:String(projId),projId:+projId,...data,files};
     });
     dbSave("projdetails", flat);
   },[projDetails]);
   useEffect(()=>{
+    if(Object.keys(projPayments).length===0) return;
     try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
-    // save always fires
     const flat=Object.entries(projPayments).flatMap(([projId,pmts])=>pmts.map(p=>({...p,projId:+projId})));
     dbSave("projpayments", flat);
   },[projPayments]);
-  useEffect(()=>{ try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{} },[clientOrder]);
   useEffect(()=>{
     if(proposals.length===0) return;
     try{localStorage.setItem("alfa_proposals",JSON.stringify(proposals));}catch{}
@@ -2478,7 +2479,6 @@ function App(){
     const forDb = proposals.map(p=>{ const {generatedHtml,...rest}=p; return rest; });
     dbSave("proposals", forDb);
   },[proposals]);
-  useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
 
   const done    = entries.filter(e=>e.end);
   // Auto-fix entries: close stale open entries AND cap closed entries over 24h

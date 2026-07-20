@@ -1276,12 +1276,11 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
 }
 
 //  -- ProjectExpanded --
-function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,defaultTab,
+function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
   activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
   T,secLabel,card,entryCost,projCogsTotals,currentUser,
   setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
   STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown,NotesLog}) {
-  const [activeTab, setActiveTab] = React.useState(defaultTab||"files");
 
   const [openSection,setOpenSection] = React.useState(null);
   const projDone = done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
@@ -1295,15 +1294,12 @@ function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,proj
 
 
   function Section({id, label, badge, children}) {
-    const isOpen = openSection===id;
     return h("div",{style:{borderTop:"1px solid "+T.line}},
-      h("div",{onClick:()=>setOpenSection(isOpen?null:id),
-        style:{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",cursor:"pointer",background:isOpen?T.faint:"transparent"}},
-        h("span",{style:{flex:1,fontSize:12,fontWeight:600,color:T.text}},label),
-        badge&&h("span",{style:{fontSize:11,fontWeight:600,color:T.sub}},badge),
-        h("span",{style:{fontSize:11,color:T.dim}},isOpen?"▲":"▼")
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:T.faint}},
+        h("span",{style:{flex:1,fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em"}},label),
+        badge&&h("span",{style:{fontSize:11,fontWeight:600,color:T.sub}},badge)
       ),
-      isOpen&&h("div",{style:{borderTop:"1px solid "+T.line}},children)
+      h("div",null,children)
     );
   }
 

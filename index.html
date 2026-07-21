@@ -3089,18 +3089,21 @@ function App(){
                 // Normal view
                 : h("div",null,
                     h("div",{style:{padding:"12px 14px"}},
-                      // Top row: name + live badge + actions
-                      h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:6}},
+                      // Top row: name + status + ··· menu
+                      h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
                         h("div",{style:{flex:1,minWidth:0}},
                           h("span",{style:{fontSize:14,fontWeight:700,color:T.text}},proj.name),
                           isLive&&h("span",{style:{marginLeft:6,fontSize:10,fontWeight:700,color:T.green,background:T.green+"15",borderRadius:10,padding:"1px 6px"}},"● Live")
                         ),
-                        h("button",{onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"6px 12px",background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"33"}},"💰"),
-                        h("button",{onClick:e=>{e.stopPropagation();setExpandProj(isExp?null:proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:13,padding:"6px 10px",background:T.faint,color:T.sub,border:"1px solid "+T.border}},isExp?"▲":"▼")
+                        (()=>{ const liveProj=projs.find(x=>x.id===proj.id)||proj;
+                          return h("select",{value:liveProj.status,onClick:e=>e.stopPropagation(),onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value,updatedAt:Date.now()}:x)),
+                            style:{background:(SC[liveProj.status]||"#94A3B8")+"18",color:SC[liveProj.status]||"#94A3B8",border:"none",borderRadius:20,padding:"3px 8px",fontSize:10,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
+                            STATUSES.map(s=>h("option",{key:s,value:s},s)));
+                        })(),
+                        h("button",{onClick:e=>{e.stopPropagation();setMenuSheet(proj.id);},style:{width:32,height:32,flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:16,padding:0,background:T.faint,color:T.sub,border:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"center"}},"···")
                       ),
-                      // Status badge + deadline + crew
-                      h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}},
-                        (()=>{ const s=(projs.find(x=>x.id===proj.id)||proj).status; return h("span",{style:{fontSize:10,fontWeight:700,color:SC[s],background:SC[s]+"18",borderRadius:10,padding:"2px 8px"}},s); })(),
+                      // Deadline + crew
+                      (proj.deadline||crew.length>0)&&h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}},
                         proj.deadline&&h("span",{style:{fontSize:10,color:T.dim}},"Due "+proj.deadline),
                         crew.map(e=>h("span",{key:e.id,style:{fontSize:10,color:e.color,fontWeight:700}},e.name))
                       ),

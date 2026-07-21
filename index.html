@@ -3042,7 +3042,22 @@ function App(){
                         h("input",{type:"text",autoFocus:true,placeholder:"Client name",value:quickClientName,onChange:e=>setQuickClientName(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&quickClientName.trim()){const n=quickClientName.trim();setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);}},style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}}),
                         h("button",{onClick:()=>{const n=quickClientName.trim();if(!n)return;setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
                         h("button",{onClick:()=>{setShowQuickClient(false);setQuickClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
-                      )
+                      ),
+                      // Inline client detail editing
+                      pf.client&&(()=>{
+                        const client = clients.find(c=>c.name===pf.client);
+                        if(!client) return null;
+                        const inp2 = {width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",boxSizing:"border-box"};
+                        return h("div",{style:{marginTop:10,padding:10,background:T.faint,borderRadius:8,border:"1px solid "+T.border}},
+                          h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}},"Client Details"),
+                          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}},
+                            h("input",{placeholder:"Phone",value:client.phone||"",onChange:e=>setClients(p=>p.map(c=>c.id===client.id?{...c,phone:e.target.value}:c)),style:inp2}),
+                            h("input",{placeholder:"Email",value:client.email||"",onChange:e=>setClients(p=>p.map(c=>c.id===client.id?{...c,email:e.target.value}:c)),style:inp2})
+                          ),
+                          h("input",{placeholder:"Address",value:client.address||"",onChange:e=>setClients(p=>p.map(c=>c.id===client.id?{...c,address:e.target.value}:c)),style:{...inp2,marginBottom:6}}),
+                          h("textarea",{placeholder:"Notes about client…",rows:2,value:client.notes||"",onChange:e=>setClients(p=>p.map(c=>c.id===client.id?{...c,notes:e.target.value}:c)),style:{...inp2,resize:"vertical"}})
+                        );
+                      })()
                     ),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
                     h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),

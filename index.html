@@ -966,9 +966,9 @@ function ProjEmpLog({entries, emps, onDelete, onEdit}) {
 
 
 //  -- ProjectDetails --
-function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, secLabel}) {
+function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, secLabel, defaultTab}) {
   const details = projDetails[projId] || {};
-  const [tab, setTab] = React.useState("info");
+  const [tab, setTab] = React.useState(defaultTab||"info");
   const [newField, setNewField] = React.useState({name:"",value:""});
   const [addingField, setAddingField] = React.useState(false);
 
@@ -3062,7 +3062,7 @@ function App(){
 
                 // Normal view
                 : h("div",null,
-                    h("div",{style:{padding:"12px 14px",cursor:"pointer"},onClick:()=>setExpandProj(isExp?null:proj.id)},
+                    h("div",{style:{padding:"12px 14px"}},
                       // Top row: name + live badge + actions
                       h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:6}},
                         h("div",{style:{flex:1,minWidth:0}},
@@ -3172,6 +3172,7 @@ function App(){
                         {icon:"📝",label:"Note",    onClick:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);}},
                         {icon:"🎨",label:"Selects", onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"selections"});}},
                         {icon:"📁",label:"Files",   onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"files"});}},
+
                         {icon:"⏱", label:"Time",    onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"timelog"});}},
                         {icon:"💰",label:"Costs",   onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);}},
                         {icon:"💳",label:"Pay",     onClick:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"payments"});}},
@@ -3457,7 +3458,7 @@ function App(){
     ),
 
     // ··· menu sheet
-    menuSheet&&h("div",{onClick:()=>setMenuSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+    menuSheet&&h("div",{onClick:()=>setMenuSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
       h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 0 32px"}},
         h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 8px"}}),
         h("div",{style:{fontSize:15,fontWeight:700,color:T.text,padding:"0 20px 12px"}},
@@ -3484,11 +3485,11 @@ function App(){
     ),
 
     // Quick Sheet for Selections and Files
-    quickSheet&&h("div",{onClick:()=>setQuickSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
-      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column"}},
+    quickSheet&&h("div",{onClick:()=>setQuickSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,maxHeight:"80vh",display:"flex",flexDirection:"column",paddingBottom:"env(safe-area-inset-bottom)"}},
         h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"10px auto"}}),
         h("div",{style:{display:"flex",alignItems:"center",padding:"0 20px 12px"}},
-          h("span",{style:{flex:1,fontSize:15,fontWeight:700,color:T.text}},(()=>{const p=projs.find(x=>x.id===quickSheet.projId);return p?p.name:"";})()+" — "+(quickSheet.section==="files"?"Files":"Selections")),
+          h("span",{style:{flex:1,fontSize:15,fontWeight:700,color:T.text}},(()=>{const p=projs.find(x=>x.id===quickSheet.projId);return p?p.name:"";})()+" — "+(quickSheet.section==="files"?"Files":quickSheet.section==="selections"?"Selections":quickSheet.section==="timelog"?"Time Log":"Payments")),
           h("button",{onClick:()=>setQuickSheet(null),style:{background:"none",border:"none",fontSize:22,color:T.dim,cursor:"pointer"}},"×")
         ),
         h("div",{style:{overflowY:"auto",flex:1}},
@@ -3502,15 +3503,15 @@ function App(){
             if(quickSheet.section==="payments") return h(PaymentsPanel,{
               projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T,line:T.line,faint:T.faint
             });
-            return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel});
+            return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel,defaultTab:quickSheet.section==="files"?"files":"info"});
           })()
         )
       )
     ),
 
     // Add Note sheet
-    addNoteSheet&&h("div",{onClick:()=>setAddNoteSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
-      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px 32px"}},
+    addNoteSheet&&h("div",{onClick:()=>setAddNoteSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px",paddingBottom:"max(32px,env(safe-area-inset-bottom))"}},
         h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
         h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:12}},(projs.find(p=>p.id===addNoteSheet)||{}).name+" — Add Note"),
         h("textarea",{autoFocus:true,value:quickNote,onChange:e=>setQuickNote(e.target.value),
@@ -3529,8 +3530,8 @@ function App(){
     ),
 
     // Add Photo sheet
-    addPhotoSheet&&h("div",{onClick:()=>setAddPhotoSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
-      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px 32px"}},
+    addPhotoSheet&&h("div",{onClick:()=>setAddPhotoSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px",paddingBottom:"max(32px,env(safe-area-inset-bottom))"}},
         h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
         h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}},(projs.find(p=>p.id===addPhotoSheet)||{}).name+" — Add File"),
         h("div",{style:{fontSize:12,color:T.sub,marginBottom:16}},"Photo or PDF"),

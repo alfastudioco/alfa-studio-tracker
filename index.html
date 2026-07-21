@@ -2276,7 +2276,18 @@ function App(){
           dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments"), dbLoad("projdetails"), dbLoad("proposals")
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
-        setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
+        if(e&&e.length>0){
+          // Merge rates from localStorage in case Supabase has stale rates
+          const local = load("alfa_emps", []);
+          const merged = e.map(sbEmp=>{
+            const lEmp = local.find(x=>x.id===sbEmp.id);
+            return lEmp&&+lEmp.rate>0&&+sbEmp.rate===0 ? {...sbEmp,rate:lEmp.rate} : sbEmp;
+          });
+          setEmps(merged);
+        } else {
+          const local = load("alfa_emps", DEFAULT_EMPS);
+          setEmps(local);
+        }
         setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
         setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
         if(cl&&cl.length>0) setClients(dedupByName(cl));
@@ -2332,7 +2343,7 @@ function App(){
       } catch(err) {
         console.error("Initial load error", err);
         // Full fallback to localStorage
-        setEmps(load("alfa_emps", DEFAULT_EMPS));
+        setEmps(load("alfa_emps", []));
         setProjs(load("alfa_projs", DEFAULT_PROJS));
         setEntries(load("alfa_entries", []));
         setClients(load("alfa_clients", []));

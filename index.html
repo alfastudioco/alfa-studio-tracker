@@ -2030,15 +2030,58 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
         images: await Promise.all((r.images||[]).map(async img=>({...img, b64: await fetchImgBase64(img)})))
       })));
 
-      const imgSection = roomsWithB64.filter(r=>r.images.some(i=>i.b64)).map(r=>
-        '<div style="margin:0 auto 20px;max-width:800px;padding:0 20px"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:10px">'+r.name+' — Reference Images</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">'+
-        r.images.filter(i=>i.b64||i.data||i.url).map(img=>'<img src="'+(img.b64||img.data||img.url)+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px">').join('')+
-        '</div></div>'
-      ).join('');
+      // Build a clean full HTML proposal with inline images per room
+      const total2 = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
+      const roomsHtml2 = roomsWithB64.map(r=>{
+        const imgs = r.images.filter(i=>i.b64||i.data).map(img=>
+          '<img src="'+(img.b64||img.data)+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;display:block">'
+        ).join('');
+        const imgsHtml = imgs ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin:10px 0">'+imgs+'</div>' : '';
+        const selLabels2 = {material:'Material',finish:'Paint / Stain',hardware:'Hardware',doorProfile:'Door Profile'};
+        const sels2 = ['material','finish','hardware','doorProfile'].filter(k=>(r.selections||{})[k]).map(k=>
+          '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #F0EDE8;font-size:13px"><span style="color:#78716C;min-width:120px;font-weight:600">'+selLabels2[k]+'</span><span>'+(r.selections||{})[k]+'</span></div>'
+        ).join('');
+        return '<div style="background:#FFF;border-radius:12px;padding:18px;margin-bottom:12px;border:1px solid #E5E2DC;page-break-inside:avoid">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
+          '<span style="font-size:16px;font-weight:700;color:#1C1917">'+r.name+'</span>'+
+          (r.price?'<span style="font-size:16px;font-weight:700;color:#16A34A">$'+Number(r.price).toLocaleString()+'</span>':'')+
+          '</div>'+imgsHtml+(sels2?'<div style="margin-top:8px">'+sels2+'</div>':'')+'</div>';
+      }).join('');
 
-      if(imgSection) {
-        aiHtml = aiHtml.replace('</body>', imgSection+'</body>');
-      }
+      aiHtml = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+        '<title>'+prop.name+' — Alfa Studio</title>'+
+        '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;color:#1C1917}'+
+        '.header{background:#1C1917;color:#FFF;padding:32px}.logo{font-size:24px;font-weight:800;color:#D4AF37;margin-bottom:4px}.sub{font-size:11px;letter-spacing:0.15em;color:#A8A29E;text-transform:uppercase;margin-bottom:24px}'+
+        '.meta{display:flex;gap:32px;font-size:13px}.meta-label{text-transform:uppercase;letter-spacing:0.06em;font-size:10px;color:#A8A29E;margin-bottom:2px}.meta-val{font-weight:600}'+
+        '.title{font-size:28px;font-weight:800;margin-top:20px}.content{max-width:860px;margin:0 auto;padding:32px 24px}'+
+        '.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#A8A29E;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #E5E2DC}'+
+        '.total-bar{background:#1C1917;color:#FFF;border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-top:16px}'+
+        '.total-label{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#A8A29E}.total-val{font-size:24px;font-weight:800;color:#D4AF37}'+
+        '@media print{.no-print{display:none}body{background:#FFF}}</style></head><body>'+
+        '<div class="header">'+
+          '<div class="logo">Alfa Studio</div>'+
+          '<div class="sub">Premium Custom Cabinetry</div>'+
+          '<div class="meta">'+
+            '<div><div class="meta-label">Client</div><div class="meta-val">'+(prop.client||'—')+'</div></div>'+
+            '<div><div class="meta-label">Date</div><div class="meta-val">'+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</div></div>'+
+            '<div><div class="meta-label">Ref</div><div class="meta-val">AFS-'+new Date().toISOString().slice(0,10).replace(/-/g,'').slice(2)+'</div></div>'+
+          '</div>'+
+          '<div class="title">'+prop.name+'</div>'+
+        '</div>'+
+        '<div class="content">'+
+          (prop.description?'<div style="background:#FFF;border-radius:12px;padding:18px;margin-bottom:24px;border:1px solid #E5E2DC;font-size:14px;line-height:1.7;color:#44403C">'+prop.description+'</div>':'')+
+          '<div class="section-label">Rooms &amp; Pricing</div>'+
+          roomsHtml2+
+          (total2>0?'<div class="total-bar"><div><div class="total-label">Total Project Investment</div><div style="font-size:11px;color:#78716C">'+prop.rooms.length+' spaces</div></div><div class="total-val">$'+total2.toLocaleString('en-US',{minimumFractionDigits:2})+'</div></div>':'')+
+          '<div style="margin-top:24px;background:#FFF;border-radius:12px;padding:18px;border:1px solid #E5E2DC" class="no-print">'+
+            '<div class="section-label">Client Notes &amp; Comments</div>'+
+            '<textarea style="width:100%;border:1px solid #E5E2DC;border-radius:8px;padding:10px;font-size:13px;outline:none;resize:vertical;min-height:80px;font-family:inherit;background:#F8F7F4" placeholder="Add any notes, revision requests, or questions here…"></textarea>'+
+          '</div>'+
+          '<div style="margin-top:24px;display:flex;gap:40px">'+
+            '<div style="flex:1"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#A8A29E;margin-bottom:20px">Client Approval</div><div style="border-bottom:1px solid #1C1917;margin-bottom:6px;padding-bottom:20px"></div><div style="font-size:11px;color:#A8A29E">Authorized Signature</div></div>'+
+            '<div style="flex:1"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#A8A29E;margin-bottom:20px">&nbsp;</div><div style="border-bottom:1px solid #1C1917;margin-bottom:6px;padding-bottom:20px"></div><div style="font-size:11px;color:#A8A29E">Date</div></div>'+
+          '</div>'+
+        '</div></body></html>';
 
       // Add comment box if not already there
       if(!aiHtml.includes('textarea')) {

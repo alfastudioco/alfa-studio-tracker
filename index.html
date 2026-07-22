@@ -1892,7 +1892,7 @@ function LiveClock({T}) {
 
 
 //  -- ProposalsTab --
-function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES}) {
+function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES,projDetails,cogs}) {
   const [expandId,setExpandId]   = React.useState(null);
   const [editingId,setEditingId] = React.useState(null);
   const [confirmId,setConfirmId] = React.useState(null);
@@ -1901,7 +1901,9 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
   const [viewImg,setViewImg]       = React.useState(null);
   const [generating,setGenerating] = React.useState(null);
   const [showNewClient,setShowNewClient] = React.useState(false);
-  const [newClientName,setNewClientName] = React.useState(""); // proposal id being generated
+  const [newClientName,setNewClientName] = React.useState("");
+  const [showImport,setShowImport]       = React.useState(false);
+  const [selectedProjs,setSelectedProjs] = React.useState([]); // proposal id being generated
 
   const blank = {
     id:null, name:"", client:"", description:"", notes:"",
@@ -2072,7 +2074,76 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
     // Header
     h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
       h("span",{style:{fontSize:13,color:T.sub}},proposals.length+" proposal"+(proposals.length!==1?"s":"")),
-      !isEditing&&h("button",{onClick:()=>{setForm({...blank,id:null});setEditingId("new");},style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ New Proposal")
+      !isEditing&&h("div",{style:{display:"flex",gap:6}},
+        h("button",{onClick:()=>{setShowImport(true);setSelectedProjs([]);},style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.faint,color:T.text,border:"1px solid "+T.border}},"↗ From Projects"),
+        h("button",{onClick:()=>{setForm({...blank,id:null});setEditingId("new");},style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ New Proposal")
+      )
+    ),
+
+    // Import from Projects modal
+    showImport&&h("div",{style:{...card,marginBottom:14,padding:16,border:"1.5px solid "+T.blue+"44",background:T.blue+"05"}},
+      h("div",{style:{fontSize:12,fontWeight:700,color:T.blue,marginBottom:12,letterSpacing:"0.04em"}},"SELECT PROJECTS TO IMPORT"),
+      h("div",{style:{fontSize:12,color:T.sub,marginBottom:10}},"Choose one or more projects — rooms, images, selections and pricing will be imported into a new proposal."),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto",marginBottom:12}},
+        projs.map(proj=>{
+          const sel = selectedProjs.includes(proj.id);
+          const salePrice = +proj.salePrice||0;
+          const cogsTotal = (cogs[proj.id]||[]).reduce((s,i)=>s+(+i.amount||0),0);
+          return h("div",{key:proj.id,onClick:()=>setSelectedProjs(p=>sel?p.filter(x=>x!==proj.id):[...p,proj.id]),
+            style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,border:"1.5px solid "+(sel?T.blue:T.border),background:sel?T.blue+"08":T.surf,cursor:"pointer"}},
+            h("div",{style:{width:18,height:18,borderRadius:4,border:"2px solid "+(sel?T.blue:T.border),background:sel?T.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+              sel&&h("span",{style:{color:"#FFF",fontSize:11,fontWeight:700}},"✓")
+            ),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:13,fontWeight:600,color:T.text}},proj.name),
+              h("div",{style:{fontSize:11,color:T.sub}},
+                [proj.client, proj.status, salePrice>0?"$"+salePrice.toLocaleString():null].filter(Boolean).join(" · ")
+              )
+            )
+          );
+        })
+      ),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}},
+        h("span",{style:{fontSize:12,color:T.sub}},selectedProjs.length+" project"+(selectedProjs.length!==1?"s":"")+" selected"),
+        h("div",{style:{display:"flex",gap:6}},
+          h("button",{onClick:()=>{setShowImport(false);setSelectedProjs([]);},style:{borderRadius:8,cursor:"pointer",fontSize:12,padding:"7px 14px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+          h("button",{
+            disabled:selectedProjs.length===0,
+            onClick:()=>{
+              // Build proposal from selected projects
+              const selProjObjs = projs.filter(p=>selectedProjs.includes(p.id));
+              // Get unique client
+              const clients2 = [...new Set(selProjObjs.map(p=>p.client).filter(Boolean))];
+              // Build rooms from each project's sale price
+              const rooms = selProjObjs.map(p=>({
+                id:Date.now()+Math.random(),
+                name:p.name,
+                price:p.salePrice||"",
+                images:(projDetails[String(p.id)]||{}).files||[],
+                selections:{
+                  material:(projDetails[String(p.id)]||{}).material||"",
+                  finish:(projDetails[String(p.id)]||{}).finish||"",
+                  hardware:(projDetails[String(p.id)]||{}).hardware||"",
+                  doorProfile:(projDetails[String(p.id)]||{}).doorProfile||"",
+                }
+              }));
+              const newProposal = {
+                ...blank,
+                id:null,
+                client:clients2.length===1?clients2[0]:"",
+                name:selProjObjs.length===1?selProjObjs[0].name:clients2[0]||"New Proposal",
+                rooms,
+                description:"Proposal for "+selProjObjs.map(p=>p.name).join(", "),
+              };
+              setForm(newProposal);
+              setEditingId("new");
+              setShowImport(false);
+              setSelectedProjs([]);
+            },
+            style:{borderRadius:8,cursor:selectedProjs.length===0?"not-allowed":"pointer",fontSize:12,fontWeight:700,padding:"7px 16px",background:selectedProjs.length===0?T.border:T.text,color:"#FFF",border:"none",opacity:selectedProjs.length===0?0.5:1}
+          },"Import & Create Proposal →")
+        )
+      )
     ),
 
     // Edit/New form
@@ -3233,7 +3304,7 @@ function App(){
 
         // PROPOSALS TAB
         adminTab==="proposals"&&h(ProposalsTab,{
-          proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES
+          proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES,projDetails,cogs
         }),
 
         // CREW TAB

@@ -2015,14 +2015,56 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
       aiHtml = aiHtml.replace(/```html|```/g,"").trim();
 
       // Fetch and embed images as base64 so they work in blob HTML
+      // Load PDF.js if not already loaded
+      if(!window.pdfjsLib) {
+        await new Promise((res,rej)=>{
+          const s=document.createElement('script');
+          s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          s.onload=res; s.onerror=rej;
+          document.head.appendChild(s);
+        });
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+
       const fetchImgBase64 = async (img) => {
-        if(img.data) return img.data; // already base64
-        if(!img.url) return null;
-        try {
-          const r = await fetch(img.url);
-          const blob = await r.blob();
+        const isPdf = (img.type||img.name||'').toLowerCase().includes('pdf');
+        // Get raw bytes
+        let arrayBuf = null;
+        if(img.data&&img.data.startsWith('data:')) {
+          const b64=img.data.split(',')[1];
+          const bin=atob(b64);
+          arrayBuf=new Uint8Array(bin.length);
+          for(let i=0;i<bin.length;i++) arrayBuf[i]=bin.charCodeAt(i);
+        } else if(img.url) {
+          try {
+            const r=await fetch(img.url);
+            arrayBuf=new Uint8Array(await r.arrayBuffer());
+          } catch(e){ return null; }
+        }
+        if(!arrayBuf) return null;
+
+        if(!isPdf) {
+          // Return image as base64
+          const blob=new Blob([arrayBuf],{type:img.type||'image/jpeg'});
           return await new Promise(res=>{ const rd=new FileReader(); rd.onload=()=>res(rd.result); rd.readAsDataURL(blob); });
-        } catch(e) { return img.url; } // fallback to URL
+        }
+
+        // PDF: render ALL pages using PDF.js, return array of base64 images
+        try {
+          const pdf=await window.pdfjsLib.getDocument({data:arrayBuf}).promise;
+          const pageImages=[];
+          for(let pageNum=1;pageNum<=pdf.numPages;pageNum++){
+            const page=await pdf.getPage(pageNum);
+            const scale=1.5;
+            const vp=page.getViewport({scale});
+            const canvas=document.createElement('canvas');
+            canvas.width=vp.width; canvas.height=vp.height;
+            const ctx=canvas.getContext('2d');
+            await page.render({canvasContext:ctx,viewport:vp}).promise;
+            pageImages.push(canvas.toDataURL('image/jpeg',0.9));
+          }
+          return pageImages; // return array of page images
+        } catch(e){ console.warn('PDF render failed:',e); return null; }
       };
 
       const roomsWithB64 = await Promise.all(prop.rooms.map(async r=>({
@@ -2033,15 +2075,14 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
       // Build a clean full HTML proposal with inline images per room
       const total2 = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
       const roomsHtml2 = roomsWithB64.map(r=>{
-        const imageFiles = r.images.filter(i=>(i.b64||i.data)&&(i.type||'').startsWith('image'));
-        const pdfFiles = r.images.filter(i=>i.b64&&(i.type||'').includes('pdf'));
-        const imgs = imageFiles.map(img=>
-          '<img src="'+(img.b64||img.data)+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;display:block">'
-        ).join('');
-        const pdfs = pdfFiles.map(img=>
-          '<a href="'+(img.b64||img.url||'')+'" download="'+(img.name||'file.pdf')+'" style="display:inline-flex;align-items:center;gap:6px;background:#F8F7F4;border:1px solid #E5E2DC;border-radius:8px;padding:8px 12px;font-size:12px;color:#1C1917;text-decoration:none;font-weight:600">📄 '+(img.name||'Document')+'</a>'
-        ).join('');
-        const imgsHtml = (imgs||pdfs) ? '<div style="margin:10px 0">'+(imgs?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:8px">'+imgs+'</div>':'')+(pdfs?'<div style="display:flex;flex-wrap:wrap;gap:8px">'+pdfs+'</div>':'')+'</div>' : '';
+        // Build image tags — b64 can be a string (single image) or array (multi-page PDF)
+        const imgTags = r.images.filter(i=>i.b64).flatMap(img=>{
+          if(Array.isArray(img.b64)){
+            return img.b64.map((pg,i)=>'<img src="'+pg+'" style="width:100%;border-radius:8px;display:block;margin-bottom:4px" title="'+(img.name||'')+(img.b64.length>1?' — Page '+(i+1):'')+'">');
+          }
+          return ['<img src="'+img.b64+'" style="width:100%;border-radius:8px;display:block" title="'+(img.name||'')+'">'];
+        }).join('');
+        const imgsHtml = imgTags ? '<div style="display:flex;flex-direction:column;gap:8px;margin:12px 0">'+imgTags+'</div>' : '';
         const selLabels2 = {material:'Material',finish:'Paint / Stain',hardware:'Hardware',doorProfile:'Door Profile'};
         const sels2 = ['material','finish','hardware','doorProfile'].filter(k=>(r.selections||{})[k]).map(k=>
           '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #F0EDE8;font-size:13px"><span style="color:#78716C;min-width:120px;font-weight:600">'+selLabels2[k]+'</span><span>'+(r.selections||{})[k]+'</span></div>'

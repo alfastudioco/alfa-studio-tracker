@@ -2010,10 +2010,25 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
       // Clean up code fences if present
       aiHtml = aiHtml.replace(/```html|```/g,"").trim();
 
-      // Inject the actual images into the AI-generated HTML before </body>
-      const imgSection = prop.rooms.filter(r=>(r.images||[]).length>0).map(r=>
+      // Fetch and embed images as base64 so they work in blob HTML
+      const fetchImgBase64 = async (img) => {
+        if(img.data) return img.data; // already base64
+        if(!img.url) return null;
+        try {
+          const r = await fetch(img.url);
+          const blob = await r.blob();
+          return await new Promise(res=>{ const rd=new FileReader(); rd.onload=()=>res(rd.result); rd.readAsDataURL(blob); });
+        } catch(e) { return img.url; } // fallback to URL
+      };
+
+      const roomsWithB64 = await Promise.all(prop.rooms.map(async r=>({
+        ...r,
+        images: await Promise.all((r.images||[]).map(async img=>({...img, b64: await fetchImgBase64(img)})))
+      })));
+
+      const imgSection = roomsWithB64.filter(r=>r.images.some(i=>i.b64)).map(r=>
         '<div style="margin:0 auto 20px;max-width:800px;padding:0 20px"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:10px">'+r.name+' — Reference Images</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">'+
-        (r.images||[]).map(img=>'<img src="'+(img.url||img.data||'')+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px">').join('')+
+        r.images.filter(i=>i.b64).map(img=>'<img src="'+img.b64+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px">').join('')+
         '</div></div>'
       ).join('');
 
@@ -2115,18 +2130,23 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
               // Get unique client
               const clients2 = [...new Set(selProjObjs.map(p=>p.client).filter(Boolean))];
               // Build rooms from each project's sale price
-              const rooms = selProjObjs.map(p=>({
+              const rooms = selProjObjs.map(p=>{
+                const pd = projDetails[String(p.id)]||projDetails[p.id]||{};
+                const files = pd.files||[];
+                console.log("Import proj",p.name,"projId:",p.id,"pd keys:",Object.keys(pd),"files:",files.length,files.map(f=>f.url||"no-url"));
+                return {
                 id:Date.now()+Math.random(),
                 name:p.name,
                 price:p.salePrice||"",
-                images:(projDetails[String(p.id)]||{}).files||[],
+                images:files,
                 selections:{
-                  material:(projDetails[String(p.id)]||{}).material||"",
-                  finish:(projDetails[String(p.id)]||{}).finish||"",
-                  hardware:(projDetails[String(p.id)]||{}).hardware||"",
-                  doorProfile:(projDetails[String(p.id)]||{}).doorProfile||"",
+                  material:pd.material||"",
+                  finish:pd.finish||"",
+                  hardware:pd.hardware||"",
+                  doorProfile:pd.doorProfile||"",
                 }
-              }));
+                };
+              });
               const newProposal = {
                 ...blank,
                 id:null,

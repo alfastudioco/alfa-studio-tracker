@@ -3156,6 +3156,7 @@ function App(){
                           h("span",{style:{fontSize:10,color:cc,opacity:0.6}},sorted.filter(p=>p.jobName&&p.jobName.trim()===job).length+" room"+(sorted.filter(p=>p.jobName&&p.jobName.trim()===job).length!==1?"s":""))
                         ));
                       }
+                      const inGroup = !!job;
                       els.push((proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
@@ -3163,6 +3164,48 @@ function App(){
             const isExp=expandProj===proj.id;
             const isEditing=editingProj===proj.id;
             const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
+                // Compact row for grouped projects, full card for ungrouped
+                if(inGroup) return h("div",{key:proj.id,style:{
+                  background:T.surf,borderRadius:8,border:"1px solid "+T.line,
+                  marginBottom:3,overflow:"hidden"
+                }},
+                  // Compact row: name + status + price + actions
+                  h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px"}},
+                    h("div",{style:{flex:1,minWidth:0}},
+                      h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},proj.name),
+                      crew.length>0&&h("div",{style:{fontSize:10,color:T.dim}},crew.map(e=>e.name).join(" · "))
+                    ),
+                    isLive&&h("span",{style:{fontSize:10,fontWeight:700,color:T.green,background:T.green+"15",borderRadius:10,padding:"1px 6px"}},"● Live"),
+                    (()=>{ const lp=projs.find(x=>x.id===proj.id)||proj;
+                      return h("select",{value:lp.status,onClick:e=>e.stopPropagation(),
+                        onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value,updatedAt:Date.now()}:x)),
+                        style:{background:(SC[lp.status]||"#94A3B8")+"18",color:SC[lp.status]||"#94A3B8",
+                          border:"none",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
+                        STATUSES.map(s=>h("option",{key:s,value:s},s)));
+                    })(),
+                    proj.salePrice&&h("span",{style:{fontSize:12,fontWeight:700,color:T.green,flexShrink:0}},"$"+Number(proj.salePrice).toLocaleString()),
+                    h("button",{onClick:e=>{e.stopPropagation();setMenuSheet(proj.id);},
+                      style:{width:28,height:28,flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:14,padding:0,
+                        background:T.faint,color:T.sub,border:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"center"}},"···")
+                  ),
+                  // Compact action bar
+                  h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderTop:"1px solid "+T.line}},
+                    [
+                      {icon:"📷",label:"Photo",   fn:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);}},
+                      {icon:"📝",label:"Note",    fn:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);}},
+                      {icon:"💰",label:"Costs",   fn:e=>{e.stopPropagation();setCogsSheet(proj.id);}},
+                      {icon:"📁",label:"Files",   fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"files"});}},
+                    ].map(({icon,label,fn},i)=>
+                      h("button",{key:label,onClick:fn,
+                        style:{padding:"6px 4px",fontSize:9,fontWeight:500,color:T.dim,background:T.surf,border:"none",
+                          borderRight:i<3?"1px solid "+T.line:"none",cursor:"pointer",
+                          display:"flex",alignItems:"center",justifyContent:"center",gap:2}},
+                        h("span",{style:{fontSize:11}},icon),label
+                      )
+                    )
+                  )
+                );
+
                 return h("div",{key:proj.id,style:{...card,marginBottom:6,borderLeft:"3px solid "+cc,boxShadow:"none",border:"1px solid "+cc+"33"}},
 
               // Inline edit form

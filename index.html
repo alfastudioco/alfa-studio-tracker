@@ -2025,24 +2025,23 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
         } catch(e) { return img.url; } // fallback to URL
       };
 
-      console.log("Rooms before fetch:", prop.rooms.map(r=>({name:r.name, imgCount:(r.images||[]).length, imgs:(r.images||[]).map(f=>({url:f.url||'NO URL',hasData:!!f.data}))})));
       const roomsWithB64 = await Promise.all(prop.rooms.map(async r=>({
         ...r,
-        images: await Promise.all((r.images||[]).map(async img=>{
-          const b64 = await fetchImgBase64(img);
-          console.log("Image:", img.name, "url:", img.url||'none', "b64 type:", b64?b64.slice(0,30):'null');
-          return {...img, b64};
-        }))
+        images: await Promise.all((r.images||[]).map(async img=>({...img, b64: await fetchImgBase64(img)})))
       })));
-      console.log("Rooms after fetch:", roomsWithB64.map(r=>({name:r.name, imgsWithB64:r.images.filter(i=>i.b64).length})));
 
       // Build a clean full HTML proposal with inline images per room
       const total2 = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
       const roomsHtml2 = roomsWithB64.map(r=>{
-        const imgs = r.images.filter(i=>i.b64||i.data).map(img=>
+        const imageFiles = r.images.filter(i=>(i.b64||i.data)&&(i.type||'').startsWith('image'));
+        const pdfFiles = r.images.filter(i=>i.b64&&(i.type||'').includes('pdf'));
+        const imgs = imageFiles.map(img=>
           '<img src="'+(img.b64||img.data)+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;display:block">'
         ).join('');
-        const imgsHtml = imgs ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin:10px 0">'+imgs+'</div>' : '';
+        const pdfs = pdfFiles.map(img=>
+          '<a href="'+(img.b64||img.url||'')+'" download="'+(img.name||'file.pdf')+'" style="display:inline-flex;align-items:center;gap:6px;background:#F8F7F4;border:1px solid #E5E2DC;border-radius:8px;padding:8px 12px;font-size:12px;color:#1C1917;text-decoration:none;font-weight:600">📄 '+(img.name||'Document')+'</a>'
+        ).join('');
+        const imgsHtml = (imgs||pdfs) ? '<div style="margin:10px 0">'+(imgs?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:8px">'+imgs+'</div>':'')+(pdfs?'<div style="display:flex;flex-wrap:wrap;gap:8px">'+pdfs+'</div>':'')+'</div>' : '';
         const selLabels2 = {material:'Material',finish:'Paint / Stain',hardware:'Hardware',doorProfile:'Door Profile'};
         const sels2 = ['material','finish','hardware','doorProfile'].filter(k=>(r.selections||{})[k]).map(k=>
           '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #F0EDE8;font-size:13px"><span style="color:#78716C;min-width:120px;font-weight:600">'+selLabels2[k]+'</span><span>'+(r.selections||{})[k]+'</span></div>'

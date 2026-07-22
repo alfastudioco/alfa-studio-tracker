@@ -3573,7 +3573,14 @@ function App(){
             try{
               const url=await uploadFile("project-files",path,file,file.type);
               const newFile={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
-              setProjDetails(p=>({...p,[addPhotoSheet]:{...(p[addPhotoSheet]||{}),files:[...((p[addPhotoSheet]||{}).files||[]),newFile]}}));
+              setProjDetails(p=>{
+                const updated={...p,[addPhotoSheet]:{...(p[addPhotoSheet]||{}),files:[...((p[addPhotoSheet]||{}).files||[]),newFile]}};
+                // Save immediately to Supabase with the new file
+                const projData = updated[addPhotoSheet];
+                const flat=[{id:String(addPhotoSheet),projId:+addPhotoSheet,...projData,files:(projData.files||[]).map(f=>f.url?{...f,data:undefined}:f)}];
+                dbSave("projdetails", flat);
+                return updated;
+              });
               setAddPhotoSheet(null);
             } catch(err){alert("Upload failed: "+err.message);}
             e.target.value="";

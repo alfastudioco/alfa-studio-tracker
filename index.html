@@ -3188,18 +3188,22 @@ function App(){
                       style:{width:28,height:28,flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:14,padding:0,
                         background:T.faint,color:T.sub,border:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"center"}},"···")
                   ),
-                  // Compact action bar
                   h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderTop:"1px solid "+T.line}},
                     [
                       {icon:"📷",label:"Photo",   fn:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);}},
                       {icon:"📝",label:"Note",    fn:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);}},
-                      {icon:"💰",label:"Costs",   fn:e=>{e.stopPropagation();setCogsSheet(proj.id);}},
+                      {icon:"🎨",label:"Selects", fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"selections"});}},
                       {icon:"📁",label:"Files",   fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"files"});}},
+                      {icon:"⏱", label:"Time",    fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"timelog"});}},
+                      {icon:"💰",label:"Costs",   fn:e=>{e.stopPropagation();setCogsSheet(proj.id);}},
+                      {icon:"💳",label:"Pay",     fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"payments"});}},
+                      {icon:"📋",label:"Log",     fn:e=>{e.stopPropagation();setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}},
                     ].map(({icon,label,fn},i)=>
                       h("button",{key:label,onClick:fn,
-                        style:{padding:"6px 4px",fontSize:9,fontWeight:500,color:T.dim,background:T.surf,border:"none",
-                          borderRight:i<3?"1px solid "+T.line:"none",cursor:"pointer",
-                          display:"flex",alignItems:"center",justifyContent:"center",gap:2}},
+                        style:{padding:"7px 4px",fontSize:9,fontWeight:500,color:T.sub,background:T.surf,border:"none",
+                          borderRight:(i+1)%4===0?"none":"1px solid "+T.line,
+                          borderTop:i>=4?"1px solid "+T.line:"none",
+                          cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:2}},
                         h("span",{style:{fontSize:11}},icon),label
                       )
                     )
@@ -3241,20 +3245,26 @@ function App(){
                         );
                       })()
                     ),
-                    h(Field,{label:"Job Name",child:
+                    h(Field,{label:"Job / Group",child:
                       h("div",null,
-                        h("input",{
-                          list:"jobname-list",
-                          value:pf.jobName||"",
-                          placeholder:"Type or select job name…",
-                          onChange:e=>setPf({...pf,jobName:e.target.value}),
-                          style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}
-                        }),
-                        h("datalist",{id:"jobname-list"},
-                          [...new Set(projs.map(p=>p.jobName).filter(Boolean))].map(j=>
-                            h("option",{key:j,value:j})
-                          )
-                        )
+                        h("select",{value:pf.jobName==="__new__"?"__new__":pf.jobName||"",
+                          onChange:e=>{ if(e.target.value!=="__new__") setPf({...pf,jobName:e.target.value}); else setPf({...pf,jobName:"__new__"}); },
+                          style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,
+                            color:pf.jobName?T.text:T.dim,padding:"9px 12px",fontSize:13,outline:"none",
+                            boxSizing:"border-box",appearance:"none",cursor:"pointer"}},
+                          h("option",{value:""},"— No group —"),
+                          [...new Set(projs.filter(p=>p.jobName&&p.jobName!=="__new__").map(p=>p.jobName))].sort().map(j=>
+                            h("option",{key:j,value:j},j)
+                          ),
+                          h("option",{value:"__new__"},"+ New group…")
+                        ),
+                        (pf.jobName==="__new__")&&h("input",{
+                          autoFocus:true,
+                          placeholder:"e.g. Keystone Residence",
+                          onBlur:e=>{ if(e.target.value.trim()) setPf({...pf,jobName:e.target.value.trim()}); else setPf({...pf,jobName:""}); },
+                          onKeyDown:e=>{ if(e.key==="Enter"&&e.target.value.trim()) setPf({...pf,jobName:e.target.value.trim()}); },
+                          style:{marginTop:6,width:"100%",background:T.faint,border:"1.5px solid "+T.blue,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}
+                        })
                       )
                     }),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),

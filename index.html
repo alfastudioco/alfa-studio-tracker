@@ -3167,9 +3167,47 @@ function App(){
                 // Compact row for grouped projects, full card for ungrouped
                 if(inGroup) return h("div",{key:proj.id,style:{
                   background:T.surf,borderRadius:8,border:"1px solid "+T.line,
-                  marginBottom:3,overflow:"hidden"
+                  borderLeft:"3px solid "+cc,marginBottom:3,overflow:"hidden"
                 }},
-                  // Compact row: name + status + price + actions
+                  // Edit form inline
+                  isEditing
+                    ? h("div",{style:{padding:16}},
+                        h("div",{style:{fontSize:12,fontWeight:700,color:T.amber,marginBottom:12}},"EDIT PROJECT"),
+                        h(Field,{label:"Project Name",value:pf.name,onChange:v=>setPf({...pf,name:v})}),
+                        h(Field,{label:"Client",child:
+                          h("select",{value:pf.client,onChange:e=>setPf({...pf,client:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",appearance:"none"}},
+                            h("option",{value:""},"— No client —"),
+                            clients.map(c=>h("option",{key:c.id,value:c.name},c.name))
+                          )
+                        }),
+                        h(Field,{label:"Job / Group",child:
+                          h("div",null,
+                            h("select",{value:pf.jobName==="__new__"?"__new__":pf.jobName||"",
+                              onChange:e=>{ if(e.target.value!=="__new__") setPf({...pf,jobName:e.target.value}); else setPf({...pf,jobName:"__new__"}); },
+                              style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:pf.jobName?T.text:T.dim,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",appearance:"none"}},
+                              h("option",{value:""},"— No group —"),
+                              [...new Set(projs.filter(p=>p.jobName&&p.jobName!=="__new__").map(p=>p.jobName))].sort().map(j=>h("option",{key:j,value:j},j)),
+                              h("option",{value:"__new__"},"+ New group…")
+                            ),
+                            (pf.jobName==="__new__")&&h("input",{autoFocus:true,placeholder:"e.g. Keystone Residence",
+                              onBlur:e=>{ if(e.target.value.trim()) setPf({...pf,jobName:e.target.value.trim()}); else setPf({...pf,jobName:""}); },
+                              onKeyDown:e=>{ if(e.key==="Enter"&&e.target.value.trim()) setPf({...pf,jobName:e.target.value.trim()}); },
+                              style:{marginTop:6,width:"100%",background:T.faint,border:"1.5px solid "+T.blue,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}})
+                          )
+                        }),
+                        h(Field,{label:"Status",child:
+                          h("select",{value:pf.status,onChange:e=>setPf({...pf,status:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",appearance:"none"}},
+                            STATUSES.map(s=>h("option",{key:s,value:s},s))
+                          )
+                        }),
+                        h(Field,{label:"Sale Price ($)",value:pf.salePrice,onChange:v=>setPf({...pf,salePrice:v})}),
+                        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}},
+                          h(Btn,{label:"Cancel",variant:"ghost",size:"sm",onClick:()=>setEditingProj(null)}),
+                          h(Btn,{label:"✓ Save",size:"sm",onClick:()=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,...pf,updatedAt:Date.now()}:x));setEditingProj(null);}})
+                        )
+                      )
+                    : h("div",null,
+                  // Top row: name + status + ···
                   h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"10px 12px"}},
                     h("div",{style:{flex:1,minWidth:0}},
                       h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},proj.name),
@@ -3183,10 +3221,32 @@ function App(){
                           border:"none",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none",flexShrink:0}},
                         STATUSES.map(s=>h("option",{key:s,value:s},s)));
                     })(),
-                    proj.salePrice&&h("span",{style:{fontSize:12,fontWeight:700,color:T.green,flexShrink:0}},"$"+Number(proj.salePrice).toLocaleString()),
                     h("button",{onClick:e=>{e.stopPropagation();setMenuSheet(proj.id);},
                       style:{width:28,height:28,flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:14,padding:0,
                         background:T.faint,color:T.sub,border:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"center"}},"···")
+                  ),
+                  // Stat tiles
+                  h("div",{style:{padding:"0 12px 10px"}},
+                    (()=>{
+                      const laborCost=entryCost(proj.id);
+                      const ct=projCogsTotals(proj.id);
+                      const salePrice=+proj.salePrice||0;
+                      const pmts=(projPayments[proj.id]||[]).reduce((s,p)=>s+(+p.amount||0),0);
+                      const profit=salePrice>0?salePrice-laborCost-ct.total:null;
+                      const stat=(label,val,color)=>h("div",{style:{flex:"1 1 50px",background:val?color+"10":T.faint,borderRadius:7,padding:"5px 6px",minWidth:50}},
+                        h("div",{style:{fontSize:8,fontWeight:600,color:val?color:T.dim,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:1}},label),
+                        val?h("div",{style:{fontSize:10,fontWeight:700,color,whiteSpace:"nowrap"}},val)
+                          :h("div",{style:{fontSize:10,color:T.border,letterSpacing:"0.1em"}},"– –")
+                      );
+                      return h("div",{style:{display:"flex",gap:4,flexWrap:"wrap"}},
+                        stat("Hours",hrs>0?fmtHrs(hrs):null,"#D97706"),
+                        stat("Labor",laborCost>0?fmtCost(laborCost):null,"#16A34A"),
+                        stat("Materials",ct.total>0?fmtCost(ct.total):null,"#2563EB"),
+                        salePrice>0&&stat("Sale",fmtCost(salePrice),"#6B7280"),
+                        pmts>0&&stat("Deposit",fmtCost(pmts),"#2563EB"),
+                        profit!==null&&stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?"#16A34A":"#DC2626")
+                      );
+                    })()
                   ),
                   h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderTop:"1px solid "+T.line}},
                     [
@@ -3208,6 +3268,7 @@ function App(){
                       )
                     )
                   )
+                ) // close isEditing ternary
                 );
 
                 return h("div",{key:proj.id,style:{...card,marginBottom:6,borderLeft:"3px solid "+cc,boxShadow:"none",border:"1px solid "+cc+"33"}},

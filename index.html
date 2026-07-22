@@ -3168,7 +3168,7 @@ function App(){
                       })()
                     ),
                     h(Field,{label:"Job Name",child:
-                      h("input",{value:pf.jobName||"",placeholder:"e.g. Keystone Residence",onChange:e=>setPf({...pf,jobName:e.target.value}),style:{...finp,width:"100%"}})
+                      h("input",{value:pf.jobName||"",placeholder:"e.g. Keystone Residence",onChange:e=>setPf({...pf,jobName:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}})
                     }),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
                     h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),

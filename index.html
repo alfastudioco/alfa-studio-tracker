@@ -3575,30 +3575,59 @@ function App(){
         h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
         h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}},(projs.find(p=>p.id===addPhotoSheet)||{}).name+" — Add File"),
         h("div",{style:{fontSize:12,color:T.sub,marginBottom:16}},"Photo or PDF"),
-        h("label",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,border:"2px dashed "+T.border,borderRadius:12,padding:"32px 20px",cursor:"pointer",background:T.faint}},
-          h("input",{type:"file",accept:"image/*,application/pdf",style:{display:"none"},onChange:async e=>{
-            const file=e.target.files[0]; if(!file) return;
-            const ext=file.name.split(".").pop();
-            const fileId=Date.now();
-            const path="proj-"+addPhotoSheet+"/"+fileId+"."+ext;
-            try{
-              const url=await uploadFile("project-files",path,file,file.type);
-              const newFile={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
-              setProjDetails(p=>{
-                const key=String(addPhotoSheet);
-                const updated={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),newFile]}};
-                // Save immediately to Supabase with the new file
-                const projData = updated[String(addPhotoSheet)];
-                const flat=[{id:String(addPhotoSheet),projId:+addPhotoSheet,...projData,files:(projData&&projData.files||[]).map(f=>f.url?{...f,data:undefined}:f)}];
-                dbSave("projdetails", flat);
-                return updated;
-              });
+        h("div",{id:"photoDropZone",
+          onDragOver:e=>{e.preventDefault();document.getElementById("photoDropZone").style.background=(T.blue+"15");document.getElementById("photoDropZone").style.borderColor=T.blue;},
+          onDragLeave:e=>{document.getElementById("photoDropZone").style.background=T.faint;document.getElementById("photoDropZone").style.borderColor=T.border;},
+          onDrop:async e=>{
+            e.preventDefault();
+            document.getElementById("photoDropZone").style.background=T.faint;
+            document.getElementById("photoDropZone").style.borderColor=T.border;
+            const droppedFiles=Array.from(e.dataTransfer.files);
+            for(const file of droppedFiles){
+              const ext=file.name.split(".").pop();
+              const fileId=Date.now()+Math.random();
+              const path="proj-"+addPhotoSheet+"/"+fileId+"."+ext;
+              try{
+                const url=await uploadFile("project-files",path,file,file.type);
+                const newFile={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
+                setProjDetails(p=>{
+                  const key=String(addPhotoSheet);
+                  const updated={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),newFile]}};
+                  const projData=updated[key];
+                  dbSave("projdetails",[{id:key,projId:+addPhotoSheet,...projData,files:(projData.files||[]).map(f=>f.url?{...f,data:undefined}:f)}]);
+                  return updated;
+                });
+              }catch(err){alert("Upload failed: "+err.message);}
+            }
+            setAddPhotoSheet(null);
+          },
+          style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,border:"2px dashed "+T.border,borderRadius:12,padding:"32px 20px",cursor:"pointer",background:T.faint,transition:"all 0.15s"}},
+          h("label",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:10,cursor:"pointer",width:"100%"}},
+            h("input",{type:"file",accept:"image/*,application/pdf",multiple:true,style:{display:"none"},onChange:async e=>{
+              const files=Array.from(e.target.files);
+              for(const file of files){
+                const ext=file.name.split(".").pop();
+                const fileId=Date.now()+Math.random();
+                const path="proj-"+addPhotoSheet+"/"+fileId+"."+ext;
+                try{
+                  const url=await uploadFile("project-files",path,file,file.type);
+                  const newFile={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
+                  setProjDetails(p=>{
+                    const key=String(addPhotoSheet);
+                    const updated={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),newFile]}};
+                    const projData=updated[key];
+                    dbSave("projdetails",[{id:key,projId:+addPhotoSheet,...projData,files:(projData.files||[]).map(f=>f.url?{...f,data:undefined}:f)}]);
+                    return updated;
+                  });
+                }catch(err){alert("Upload failed: "+err.message);}
+              }
+              e.target.value="";
               setAddPhotoSheet(null);
-            } catch(err){alert("Upload failed: "+err.message);}
-            e.target.value="";
-          }}),
-          h("span",{style:{fontSize:32}},"📷"),
-          h("span",{style:{fontSize:14,fontWeight:600,color:T.sub}},"Tap to choose photo or PDF")
+            }}),
+            h("span",{style:{fontSize:32}},"📷"),
+            h("span",{style:{fontSize:14,fontWeight:600,color:T.sub}},"Drag & drop or tap to choose"),
+            h("span",{style:{fontSize:11,color:T.dim}},"Photos or PDFs · Multiple files supported")
+          )
         )
       )
     ),

@@ -2025,10 +2025,16 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
         } catch(e) { return img.url; } // fallback to URL
       };
 
+      console.log("Rooms before fetch:", prop.rooms.map(r=>({name:r.name, imgCount:(r.images||[]).length, imgs:(r.images||[]).map(f=>({url:f.url||'NO URL',hasData:!!f.data}))})));
       const roomsWithB64 = await Promise.all(prop.rooms.map(async r=>({
         ...r,
-        images: await Promise.all((r.images||[]).map(async img=>({...img, b64: await fetchImgBase64(img)})))
+        images: await Promise.all((r.images||[]).map(async img=>{
+          const b64 = await fetchImgBase64(img);
+          console.log("Image:", img.name, "url:", img.url||'none', "b64 type:", b64?b64.slice(0,30):'null');
+          return {...img, b64};
+        }))
       })));
+      console.log("Rooms after fetch:", roomsWithB64.map(r=>({name:r.name, imgsWithB64:r.images.filter(i=>i.b64).length})));
 
       // Build a clean full HTML proposal with inline images per room
       const total2 = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);

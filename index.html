@@ -3653,7 +3653,7 @@ function App(){
         [
           {label:"✏ Edit project", onClick:()=>{
             const p=projs.find(x=>x.id===menuSheet);
-            if(p){setPf({name:p.name,client:p.client,status:p.status,deadline:p.deadline,assignedTo:[...p.assignedTo],salePrice:p.salePrice||"",notes:p.notes||""});setEditingProj(p.id);}
+            if(p){setPf({name:p.name,client:p.client,status:p.status,deadline:p.deadline,assignedTo:[...p.assignedTo],salePrice:p.salePrice||"",notes:p.notes||"",jobName:p.jobName||""});setEditingProj(p.id);}
             setMenuSheet(null);
           }},
           {label:"+ Log hours", onClick:()=>{

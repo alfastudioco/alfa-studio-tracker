@@ -3125,7 +3125,30 @@ function App(){
                 ),
                 // Projects nested inside
                 h("div",{style:{padding:"8px 8px 4px",background:T.bg}},
-                  ...clientProjs.map(proj=>{
+                  ...(()=>{
+                    // Sort: grouped projects together, ungrouped last
+                    const sorted = [...clientProjs].sort((a,b)=>{
+                      const ja=a.jobName||""; const jb=b.jobName||"";
+                      if(ja&&!jb) return -1; if(!ja&&jb) return 1;
+                      return ja.localeCompare(jb)||a.name.localeCompare(b.name);
+                    });
+                    let lastJob = null;
+                    const els = [];
+                    sorted.forEach(proj=>{
+                      const job = proj.jobName&&proj.jobName.trim()?proj.jobName.trim():null;
+                      if(job!==lastJob){
+                        lastJob=job;
+                        if(job) els.push(h("div",{key:"jh-"+job+clientName,style:{
+                          display:"flex",alignItems:"center",gap:8,
+                          padding:"5px 10px",margin:"6px 0 3px",
+                          background:cc+"10",borderRadius:6,
+                          borderLeft:"3px solid "+cc
+                        }},
+                          h("span",{style:{fontSize:11,fontWeight:700,color:cc,flex:1}},job),
+                          h("span",{style:{fontSize:10,color:cc,opacity:0.6}},sorted.filter(p=>p.jobName&&p.jobName.trim()===job).length+" room"+(sorted.filter(p=>p.jobName&&p.jobName.trim()===job).length!==1?"s":""))
+                        ));
+                      }
+                      els.push((proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
@@ -3168,7 +3191,20 @@ function App(){
                       })()
                     ),
                     h(Field,{label:"Job Name",child:
-                      h("input",{value:pf.jobName||"",placeholder:"e.g. Keystone Residence",onChange:e=>setPf({...pf,jobName:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}})
+                      h("div",null,
+                        h("input",{
+                          list:"jobname-list",
+                          value:pf.jobName||"",
+                          placeholder:"Type or select job name…",
+                          onChange:e=>setPf({...pf,jobName:e.target.value}),
+                          style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}
+                        }),
+                        h("datalist",{id:"jobname-list"},
+                          [...new Set(projs.map(p=>p.jobName).filter(Boolean))].map(j=>
+                            h("option",{key:j,value:j})
+                          )
+                        )
+                      )
                     }),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
                     h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
@@ -3329,8 +3365,11 @@ function App(){
                     )
                   )
                 );
-              })
-            ) // close projects padding div
+              })(proj));
+                    });
+                    return els;
+                  })()
+                ) // close projects padding div
           ) // close group card
           ]; // close inner array
             }); // close flatMap

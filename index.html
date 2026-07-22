@@ -207,13 +207,15 @@ function Btn({label,onClick,variant="primary",size="md"}){
   return h("button",{onClick,style:styles[variant]||styles.primary},label);
 }
 
-function Field({label,value,onChange,type="text",options}){
+function Field({label,value,onChange,type="text",options,child}){
   const s={width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"};
   return h("div",{style:{marginBottom:14}},
     h("div",{style:{fontSize:11,color:T.sub,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},label),
-    options
-      ? h("select",{value,onChange:e=>onChange(e.target.value),style:s},options.map(o=>h("option",{key:o,value:o},o)))
-      : h("input",{type,value,onChange:e=>onChange(e.target.value),style:s})
+    child
+      ? child
+      : options
+        ? h("select",{value,onChange:e=>onChange(e.target.value),style:s},options.map(o=>h("option",{key:o,value:o},o)))
+        : h("input",{type,value,onChange:e=>onChange(e.target.value),style:s})
   );
 }
 
@@ -2433,7 +2435,18 @@ function App(){
         }
         if(pd&&pd.length>0){
           const obj={};
-          pd.forEach(i=>{ const key=String(i.projId||i.id); obj[key]={...i,files:i.files||[]}; });
+          pd.forEach(i=>{
+            const key=String(i.projId||i.id);
+            const existing=projDetails[key];
+            const memFiles=existing?(existing.files||[]):[];
+            const sbFiles=i.files||[];
+            // Union: keep all unique files from both Supabase and memory
+            const seen=new Set(sbFiles.map(f=>String(f.id)));
+            const localOnly=memFiles.filter(f=>!seen.has(String(f.id)));
+            obj[key]={...i,files:[...sbFiles,...localOnly]};
+          });
+          // Keep any local projDetails not in Supabase yet
+          Object.keys(projDetails).forEach(k=>{ if(!obj[k]) obj[k]=projDetails[k]; });
           setProjDetails(obj);
         }
         // Proposals: restore generatedHtml from memory only (too large for Supabase)

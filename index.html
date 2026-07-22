@@ -2074,62 +2074,98 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
 
       // Build a clean full HTML proposal with inline images per room
       const total2 = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
-      const roomsHtml2 = roomsWithB64.map(r=>{
-        // Build image tags — b64 can be a string (single image) or array (multi-page PDF)
-        const imgTags = r.images.filter(i=>i.b64).flatMap(img=>{
-          if(Array.isArray(img.b64)){
-            return img.b64.map((pg,i)=>'<img src="'+pg+'" style="width:100%;border-radius:8px;display:block;margin-bottom:4px" title="'+(img.name||'')+(img.b64.length>1?' — Page '+(i+1):'')+'">');
-          }
-          return ['<img src="'+img.b64+'" style="width:100%;border-radius:8px;display:block" title="'+(img.name||'')+'">'];
+      const dateStr2 = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+      const refStr2 = 'AFS-'+new Date().toISOString().slice(2,10).replace(/-/g,'');
+      const selLabels2 = {material:'Material',finish:'Paint / Stain',hardware:'Hardware',doorProfile:'Door Profile'};
+
+      const pricingRows2 = prop.rooms.map((r,i)=>
+        '<tr style="border-bottom:1px solid #e8e5e0">'+
+          '<td style="padding:11px 0;color:#aaa;font-size:11px;vertical-align:top;width:36px">'+String(i+1).padStart(2,'0')+'</td>'+
+          '<td style="padding:11px 12px;font-weight:500;color:#1a1a1a">'+r.name+'</td>'+
+          '<td style="padding:11px 0;text-align:right;font-weight:500;color:#1a1a1a;white-space:nowrap">'+
+            (r.price?'$'+Number(r.price).toLocaleString('en-US'):'—')+
+          '</td>'+
+        '</tr>'
+      ).join('');
+
+      const roomSections2 = roomsWithB64.map(r=>{
+        const imgTags2 = r.images.filter(i=>i.b64).flatMap(img=>{
+          if(Array.isArray(img.b64)) return img.b64.map(pg=>'<img src="'+pg+'" style="width:100%;display:block;border-radius:6px;margin-bottom:6px">');
+          return ['<img src="'+img.b64+'" style="width:100%;display:block;border-radius:6px;margin-bottom:6px">'];
         }).join('');
-        const imgsHtml = imgTags ? '<div style="display:flex;flex-direction:column;gap:8px;margin:12px 0">'+imgTags+'</div>' : '';
-        const selLabels2 = {material:'Material',finish:'Paint / Stain',hardware:'Hardware',doorProfile:'Door Profile'};
         const sels2 = ['material','finish','hardware','doorProfile'].filter(k=>(r.selections||{})[k]).map(k=>
-          '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #F0EDE8;font-size:13px"><span style="color:#78716C;min-width:120px;font-weight:600">'+selLabels2[k]+'</span><span>'+(r.selections||{})[k]+'</span></div>'
+          '<div style="padding:9px 13px;background:#f5f3ef;border-radius:7px">'+
+            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px">'+selLabels2[k]+'</div>'+
+            '<div style="font-size:13px;font-weight:500;color:#1a1a1a">'+(r.selections||{})[k]+'</div>'+
+          '</div>'
         ).join('');
-        return '<div style="background:#FFF;border-radius:12px;padding:18px;margin-bottom:12px;border:1px solid #E5E2DC;page-break-inside:avoid">'+
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
-          '<span style="font-size:16px;font-weight:700;color:#1C1917">'+r.name+'</span>'+
-          (r.price?'<span style="font-size:16px;font-weight:700;color:#16A34A">$'+Number(r.price).toLocaleString()+'</span>':'')+
-          '</div>'+imgsHtml+(sels2?'<div style="margin-top:8px">'+sels2+'</div>':'')+'</div>';
+        return '<div style="margin-bottom:44px;padding-bottom:44px;border-bottom:1px solid #e8e5e0">'+
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px">'+
+            '<div style="font-size:17px;font-weight:500;color:#1a1a1a">'+r.name+'</div>'+
+            (r.price?'<div style="font-size:16px;font-weight:500;color:#1a1a1a">$'+Number(r.price).toLocaleString('en-US')+'</div>':'')+
+          '</div>'+
+          (imgTags2?'<div style="margin-bottom:'+(sels2?'14px':'0')+'">'+imgTags2+'</div>':'')+
+          (sels2?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">'+sels2+'</div>':'')+
+        '</div>';
       }).join('');
 
-      aiHtml = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+      aiHtml = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'+
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'+
         '<title>'+prop.name+' — Alfa Studio</title>'+
-        '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;color:#1C1917}'+
-        '.header{background:#1C1917;color:#FFF;padding:32px}.logo{font-size:24px;font-weight:800;color:#D4AF37;margin-bottom:4px}.sub{font-size:11px;letter-spacing:0.15em;color:#A8A29E;text-transform:uppercase;margin-bottom:24px}'+
-        '.meta{display:flex;gap:32px;font-size:13px}.meta-label{text-transform:uppercase;letter-spacing:0.06em;font-size:10px;color:#A8A29E;margin-bottom:2px}.meta-val{font-weight:600}'+
-        '.title{font-size:28px;font-weight:800;margin-top:20px}.content{max-width:860px;margin:0 auto;padding:32px 24px}'+
-        '.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#A8A29E;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #E5E2DC}'+
-        '.total-bar{background:#1C1917;color:#FFF;border-radius:12px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-top:16px}'+
-        '.total-label{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#A8A29E}.total-val{font-size:24px;font-weight:800;color:#D4AF37}'+
-        '@media print{.no-print{display:none}body{background:#FFF}}</style></head><body>'+
-        '<div class="header">'+
-          '<div class="logo">Alfa Studio</div>'+
-          '<div class="sub">Premium Custom Cabinetry</div>'+
-          '<div class="meta">'+
-            '<div><div class="meta-label">Client</div><div class="meta-val">'+(prop.client||'—')+'</div></div>'+
-            '<div><div class="meta-label">Date</div><div class="meta-val">'+new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</div></div>'+
-            '<div><div class="meta-label">Ref</div><div class="meta-val">AFS-'+new Date().toISOString().slice(0,10).replace(/-/g,'').slice(2)+'</div></div>'+
+        '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f3ef;color:#1a1a1a}@media print{.no-print{display:none!important}}</style>'+
+        '</head><body>'+
+        '<div style="background:#1a1a1a;padding:40px 48px">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px">'+
+            '<div><div style="font-size:20px;font-weight:700;color:#c9a84c;letter-spacing:0.06em">ALFA STUDIO</div>'+
+            '<div style="font-size:10px;letter-spacing:0.2em;color:#555;text-transform:uppercase;margin-top:3px">Premium Custom Cabinetry</div></div>'+
+            '<div style="text-align:right;font-size:12px;line-height:2.2">'+
+              '<div><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#555">Client&nbsp;&nbsp;</span><span style="color:#ccc">'+(prop.client||'—')+'</span></div>'+
+              '<div><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#555">Date&nbsp;&nbsp;</span><span style="color:#ccc">'+dateStr2+'</span></div>'+
+              '<div><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#555">Ref&nbsp;&nbsp;</span><span style="color:#ccc">'+refStr2+'</span></div>'+
+            '</div>'+
           '</div>'+
-          '<div class="title">'+prop.name+'</div>'+
+          '<div style="padding-top:24px;border-top:1px solid #2a2a2a">'+
+            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:#555;margin-bottom:8px">Project proposal</div>'+
+            '<div style="font-size:26px;font-weight:500;color:#fff">'+prop.name+'</div>'+
+          '</div>'+
         '</div>'+
-        '<div class="content">'+
-          (prop.description?'<div style="background:#FFF;border-radius:12px;padding:18px;margin-bottom:24px;border:1px solid #E5E2DC;font-size:14px;line-height:1.7;color:#44403C">'+prop.description+'</div>':'')+
-          '<div class="section-label">Rooms &amp; Pricing</div>'+
-          roomsHtml2+
-          (total2>0?'<div class="total-bar"><div><div class="total-label">Total Project Investment</div><div style="font-size:11px;color:#78716C">'+prop.rooms.length+' spaces</div></div><div class="total-val">$'+total2.toLocaleString('en-US',{minimumFractionDigits:2})+'</div></div>':'')+
-          '<div style="margin-top:24px;background:#FFF;border-radius:12px;padding:18px;border:1px solid #E5E2DC" class="no-print">'+
-            '<div class="section-label">Client Notes &amp; Comments</div>'+
-            '<textarea style="width:100%;border:1px solid #E5E2DC;border-radius:8px;padding:10px;font-size:13px;outline:none;resize:vertical;min-height:80px;font-family:inherit;background:#F8F7F4" placeholder="Add any notes, revision requests, or questions here…"></textarea>'+
-          '</div>'+
-          '<div style="margin-top:24px;display:flex;gap:40px">'+
-            '<div style="flex:1"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#A8A29E;margin-bottom:20px">Client Approval</div><div style="border-bottom:1px solid #1C1917;margin-bottom:6px;padding-bottom:20px"></div><div style="font-size:11px;color:#A8A29E">Authorized Signature</div></div>'+
-            '<div style="flex:1"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#A8A29E;margin-bottom:20px">&nbsp;</div><div style="border-bottom:1px solid #1C1917;margin-bottom:6px;padding-bottom:20px"></div><div style="font-size:11px;color:#A8A29E">Date</div></div>'+
-          '</div>'+
-        '</div></body></html>';
+        '<div style="background:#fff;padding:40px 48px;border-bottom:1px solid #e8e5e0">'+
+          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:18px">Scope & investment</div>'+
+          '<table style="width:100%;border-collapse:collapse">'+
+            '<thead><tr style="border-bottom:2px solid #1a1a1a">'+
+              '<th style="padding:8px 0;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;font-weight:400;width:36px">#</th>'+
+              '<th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;font-weight:400">Room / item</th>'+
+              '<th style="padding:8px 0;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;font-weight:400">Investment</th>'+
+            '</tr></thead>'+
+            '<tbody>'+pricingRows2+'</tbody>'+
+            (total2>0?'<tfoot><tr>'+
+              '<td colspan="2" style="padding:18px 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#999">Total project investment</td>'+
+              '<td style="padding:18px 0 6px;text-align:right;font-size:22px;font-weight:600;color:#c9a84c">$'+total2.toLocaleString('en-US',{minimumFractionDigits:2})+'</td>'+
+            '</tr></tfoot>':'')+
+          '</table>'+
+        '</div>'+
+        (roomSections2.trim()?'<div style="background:#f5f3ef;padding:40px 48px">'+
+          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:28px">Room details & layouts</div>'+
+          roomSections2+
+        '</div>':'')+
+        (prop.notes?'<div style="background:#fff;padding:32px 48px;border-top:1px solid #e8e5e0">'+
+          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:12px">Notes</div>'+
+          '<div style="font-size:13px;line-height:1.8;color:#444;white-space:pre-wrap">'+prop.notes+'</div>'+
+        '</div>':'')+
+        '<div class="no-print" style="background:#fff;padding:28px 48px;border-top:1px solid #e8e5e0">'+
+          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:10px">Client notes & comments</div>'+
+          '<textarea style="width:100%;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:13px;outline:none;resize:vertical;min-height:72px;font-family:inherit;background:#f9f7f4;color:#1a1a1a" placeholder="Add any notes, revision requests, or questions here…"></textarea>'+
+        '</div>'+
+        '<div style="background:#fff;padding:36px 48px;border-top:1px solid #e8e5e0;display:grid;grid-template-columns:1fr 1fr;gap:60px">'+
+          '<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:36px">Client approval</div>'+
+            '<div style="border-bottom:1px solid #1a1a1a;margin-bottom:7px"></div>'+
+            '<div style="font-size:11px;color:#aaa">Authorized signature</div></div>'+
+          '<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:36px">&nbsp;</div>'+
+            '<div style="border-bottom:1px solid #1a1a1a;margin-bottom:7px"></div>'+
+            '<div style="font-size:11px;color:#aaa">Date</div></div>'+
+        '</div>'+
+        '</body></html>';
 
-      // Add comment box if not already there
       if(!aiHtml.includes('textarea')) {
         const commentBox = '<div style="max-width:800px;margin:0 auto 40px;padding:0 20px"><div style="background:#FFF;border-radius:12px;padding:20px;border:1px solid #E5E2DC"><h3 style="font-size:13px;font-weight:700;color:#78716C;margin-bottom:10px">Your Comments</h3><textarea style="width:100%;border:1px solid #E5E2DC;border-radius:8px;padding:10px;font-size:13px;min-height:80px" placeholder="Add comments here"></textarea><br><button onclick="alert(\'Thank you!\')">Submit</button></div></div>';
         aiHtml = aiHtml.replace("</body>", commentBox+"</body>");
@@ -2460,7 +2496,12 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
         h("div",{style:{fontSize:13,color:"#78716C",marginBottom:16}},proposals.find(p=>p.id===confirmId)?.name),
         h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
           h("button",{onClick:()=>setConfirmId(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
-          h("button",{onClick:()=>{setProposals(p=>p.filter(x=>x.id!==confirmId));setConfirmId(null);},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+          h("button",{onClick:()=>{
+  setProposals(p=>p.filter(x=>x.id!==confirmId));
+  // Delete from Supabase immediately
+  fetch(SB_URL+"/rest/v1/proposals?id=eq."+String(confirmId),{method:"DELETE",mode:"cors",headers:SB_HEADERS}).catch(e=>console.error("del proposal",e));
+  setConfirmId(null);
+},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
         )
       )
     ),

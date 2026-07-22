@@ -969,6 +969,8 @@ function ProjEmpLog({entries, emps, onDelete, onEdit}) {
 function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, secLabel, defaultTab}) {
   const details = projDetails[projId] || {};
   const [tab, setTab] = React.useState(defaultTab||"info");
+  React.useEffect(()=>{ if(defaultTab) setTab(defaultTab); },[defaultTab,projId]);
+  const [dragging, setDragging] = React.useState(false);
   const [newField, setNewField] = React.useState({name:"",value:""});
   const [addingField, setAddingField] = React.useState(false);
 
@@ -995,7 +997,11 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
   // File handling — store as base64 in state
 
   async function handleFile(e) {
-    const file = e.target.files[0];
+    const files = Array.from(e.target.files||[]);
+    if(!files.length) return;
+    for(const file of files) { await handleSingleFile(file); }
+  }
+  async function handleSingleFile(file) {
     if(!file) return;
     if(file.size > 5*1024*1024) { alert("File too large — max 5MB"); return; }
     const base64 = await new Promise((res,rej)=>{
@@ -1067,16 +1073,32 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
 
     // FILES TAB
     tab==="files"&&h("div",{style:{padding:"14px 16px"}},
-      // Upload buttons
-      h("div",{style:{display:"flex",gap:8,marginBottom:14}},
-        h("label",{style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:"10px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
-          h("input",{type:"file",accept:"image/*",capture:"environment",onChange:handleFile,style:{display:"none"}}),
-          "📷 Photo"
-        ),
-        h("label",{style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:"10px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
-          h("input",{type:"file",accept:"image/*,application/pdf,.doc,.docx",onChange:handleFile,style:{display:"none"}}),
-          "📄 File / PDF"
-        )
+      // Drag & drop zone + upload buttons
+      h("div",{
+        onDragOver:e=>{e.preventDefault();setDragging(true);},
+        onDragLeave:()=>setDragging(false),
+        onDrop:async e=>{
+          e.preventDefault();setDragging(false);
+          const files=Array.from(e.dataTransfer.files);
+          for(const file of files){ await handleFile({target:{files:[file]}}); }
+        },
+        style:{border:"2px dashed "+(dragging?T.blue:T.border),borderRadius:12,padding:16,marginBottom:14,
+          background:dragging?T.blue+"08":T.faint,transition:"all 0.2s",textAlign:"center"}},
+        dragging
+          ? h("div",{style:{fontSize:14,fontWeight:600,color:T.blue}},"Drop files here ↓")
+          : h("div",null,
+              h("div",{style:{fontSize:13,color:T.sub,marginBottom:10}},"Drag & drop photos or PDFs here"),
+              h("div",{style:{display:"flex",gap:8,justifyContent:"center"}},
+                h("label",{style:{display:"flex",alignItems:"center",gap:6,background:T.blue+"12",border:"1.5px solid "+T.blue+"44",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
+                  h("input",{type:"file",accept:"image/*",capture:"environment",multiple:true,onChange:handleFile,style:{display:"none"}}),
+                  "📷 Photo"
+                ),
+                h("label",{style:{display:"flex",alignItems:"center",gap:6,background:T.blue+"12",border:"1.5px solid "+T.blue+"44",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
+                  h("input",{type:"file",accept:"image/*,application/pdf,.doc,.docx",multiple:true,onChange:handleFile,style:{display:"none"}}),
+                  "📄 File / PDF"
+                )
+              )
+            )
       ),
       // File list
       (details.files||[]).length===0&&h("div",{style:{fontSize:12,color:T.dim,textAlign:"center",padding:24}},"No files yet. Upload photos, drawings, or signed quotes."),
@@ -2275,69 +2297,43 @@ function App(){
           dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
           dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments"), dbLoad("projdetails"), dbLoad("proposals")
         ]);
-        // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
+        // Smart merge: Supabase is source of truth, but preserve localStorage for rates/files/proposals
+        // Load everything from Supabase — single source of truth
+        const localEmps = load("alfa_emps", []);
         if(e&&e.length>0){
-          // Merge rates from localStorage in case Supabase has stale rates
-          const local = load("alfa_emps", []);
-          const merged = e.map(sbEmp=>{
-            const lEmp = local.find(x=>x.id===sbEmp.id);
-            return lEmp&&+lEmp.rate>0&&+sbEmp.rate===0 ? {...sbEmp,rate:lEmp.rate} : sbEmp;
-          });
+          // Only preserve rates from localStorage if Supabase still has 0 (rate not saved yet)
+          const merged = e.map(sb=>{ const l=localEmps.find(x=>x.id===sb.id); return (l&&+l.rate>0&&!(+sb.rate>0))?{...sb,rate:l.rate}:sb; });
           setEmps(merged);
-        } else {
-          const local = load("alfa_emps", DEFAULT_EMPS);
-          setEmps(local);
-        }
-        setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
-        setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
+          // Push merged rates back to Supabase so they stick
+          dbSave("employees", merged);
+        } else if(localEmps.length>0) { setEmps(localEmps); dbSave("employees", localEmps); }
+
+        if(p&&p.length>0) setProjs(p);
+        if(en&&en.length>0) setEntries(en);
         if(cl&&cl.length>0) setClients(dedupByName(cl));
-        else { const lc=load("alfa_clients",[]); if(lc.length>0) setClients(lc); }
         if(vn&&vn.length>0) setVendors(vn);
-        else { const lv=load("alfa_vendors",[]); if(lv.length>0) setVendors(lv); }
+
         if(cg&&cg.length>0){
-          const cogsObj={};
-          cg.forEach(i=>{ if(!cogsObj[i.projId])cogsObj[i.projId]=[]; cogsObj[i.projId].push(i); });
-          setCogs(cogsObj);
-        } else { const lc=load("alfa_cogs",{}); if(Object.keys(lc).length>0) setCogs(lc); }
+          const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setCogs(obj);
+        }
         if(pn&&pn.length>0){
-          const pnObj={};
-          pn.forEach(i=>{ if(!pnObj[i.projId])pnObj[i.projId]=[]; pnObj[i.projId].push(i); });
-          setProjNotes(pnObj);
+          const obj={}; pn.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjNotes(obj);
         }
         if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
         if(pp&&pp.length>0){
-          const ppObj={};
-          pp.forEach(i=>{ if(!ppObj[i.projId])ppObj[i.projId]=[]; ppObj[i.projId].push(i); });
-          setProjPayments(ppObj);
+          const obj={}; pp.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjPayments(obj);
         }
         if(pd&&pd.length>0){
-          const pdObj={};
-          pd.forEach(i=>{ pdObj[String(i.projId||i.id)]={...i}; });
-          setProjDetails(pdObj);
-        }
-        // Always merge Supabase + localStorage for proposals
-        (()=>{
-          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
-          if(pd&&pd.length>0){
-          const local = (() => { try { return JSON.parse(localStorage.getItem("alfa_projdetails")||"{}"); } catch { return {}; } })();
           const obj={};
-          pd.forEach(i=>{ 
-            const localEntry = local[i.projId]||{};
-            obj[i.projId]={...i, files:localEntry.files||[]};
-          });
-          if(JSON.stringify(obj)!==JSON.stringify(projDetails)) setProjDetails(obj);
+          pd.forEach(i=>{ const key=String(i.projId||i.id); obj[key]={...i,files:i.files||[]}; });
+          setProjDetails(obj);
         }
+        // Proposals: restore generatedHtml from memory only (too large for Supabase)
+        const localProposals = (() => { try { return JSON.parse(localStorage.getItem("alfa_proposals")||"[]"); } catch { return []; } })();
         if(pr&&pr.length>0){
-            // Use Supabase as source of truth but restore generatedHtml from localStorage
-            const merged = pr.map(p=>{ const lp=local.find(x=>String(x.id)===String(p.id)); return lp?{...p,generatedHtml:lp.generatedHtml,generatedAt:lp.generatedAt||p.generatedAt}:p; });
-            // Also include any local proposals not yet in Supabase
-            const sbIds = new Set(pr.map(p=>String(p.id)));
-            const localOnly = local.filter(p=>!sbIds.has(String(p.id)));
-            setProposals([...merged,...localOnly]);
-          } else if(local.length>0) {
-            setProposals(local);
-          }
-        })();
+          const merged=pr.map(p=>{ const lp=localProposals.find(x=>String(x.id)===String(p.id)); return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p; });
+          setProposals(merged);
+        }
       } catch(err) {
         console.error("Initial load error", err);
         // Full fallback to localStorage
@@ -2417,29 +2413,31 @@ function App(){
   const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true, projDetails:true, proposals:true});
 
   useEffect(()=>{
+    if(!dbReady||emps.length===0) return;
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
     dbSave("employees", emps);
   },[emps]);
 
   useEffect(()=>{
+    if(!dbReady||projs.length===0) return;
     try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}
     dbSave("projects", projs);
   },[projs]);
 
   useEffect(()=>{
-    if(entries.length===0) return;
+    if(!dbReady||entries.length===0) return;
     try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}
     dbSave("entries", entries);
   },[entries]);
   useEffect(()=>{
-    if(Object.keys(cogs).length===0) return;
+    if(!dbReady||Object.keys(cogs).length===0) return;
     try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{}
     const cogsFlat=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
     dbSave("cogs", cogsFlat);
   },[cogs]);
 
   useEffect(()=>{
-    if(vendors.length===0) return;
+    if(!dbReady||vendors.length===0) return;
     try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{}
     dbSave("vendors", vendors);
   },[vendors]);
@@ -2452,26 +2450,26 @@ function App(){
       return;
     }
     try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{}
-    if(clients.length===0) return;
+    if(!dbReady||clients.length===0) return;
     dbSave("clients", clients);
   },[clients]);
 
   useEffect(()=>{
-    if(Object.keys(projNotes).length===0) return;
+    if(!dbReady||Object.keys(projNotes).length===0) return;
     try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{}
     const notesFlat=Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
     dbSave("projnotes", notesFlat);
   },[projNotes]);
 
   useEffect(()=>{
-    if(clientOrder.length===0) return;
+    if(!dbReady||clientOrder.length===0) return;
     try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{}
     dbSave("clientorder", clientOrder.map(name=>({id:name,name})));
   },[clientOrder]);
 
   // Client profiles are managed manually in the Clients tab
   useEffect(()=>{
-    if(Object.keys(projDetails).length===0) return; // don't save empty state
+    if(!dbReady||Object.keys(projDetails).length===0) return;
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
     // Save files — strip base64 data only if URL exists, otherwise keep as-is
     const flat=Object.entries(projDetails).map(([projId,data])=>{
@@ -2486,13 +2484,13 @@ function App(){
     dbSave("projdetails", flat);
   },[projDetails]);
   useEffect(()=>{
-    if(Object.keys(projPayments).length===0) return;
+    if(!dbReady||Object.keys(projPayments).length===0) return;
     try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
     const flat=Object.entries(projPayments).flatMap(([projId,pmts])=>pmts.map(p=>({...p,projId:+projId})));
     dbSave("projpayments", flat);
   },[projPayments]);
   useEffect(()=>{
-    if(proposals.length===0) return;
+    if(!dbReady||proposals.length===0) return;
     try{localStorage.setItem("alfa_proposals",JSON.stringify(proposals));}catch{}
     // save always fires
     const forDb = proposals.map(p=>{ const {generatedHtml,...rest}=p; return rest; });

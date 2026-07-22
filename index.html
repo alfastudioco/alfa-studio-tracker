@@ -2412,7 +2412,11 @@ function App(){
           dbSave("employees", merged);
         } else if(localEmps.length>0) { setEmps(localEmps); dbSave("employees", localEmps); }
 
-        if(p&&p.length>0) setProjs(p);
+        if(p&&p.length>0){
+          // Preserve jobName from local state if Supabase doesn't have it yet
+          const merged = p.map(sb=>{ const local=projs.find(x=>x.id===sb.id); return local&&local.jobName&&!sb.jobName?{...sb,jobName:local.jobName}:sb; });
+          setProjs(merged);
+        }
         if(en&&en.length>0) setEntries(en);
         if(cl&&cl.length>0) setClients(dedupByName(cl));
         if(vn&&vn.length>0) setVendors(vn);
@@ -2676,7 +2680,11 @@ function App(){
           if(JSON.stringify(merged)!==JSON.stringify(emps)) setEmps(merged);
         }
         if(e&&e.length>0) setEntries(e);
-        if(p&&p.length>0) setProjs(p);
+        if(p&&p.length>0){
+          // Preserve jobName from local state if Supabase doesn't have it yet
+          const merged = p.map(sb=>{ const local=projs.find(x=>x.id===sb.id); return local&&local.jobName&&!sb.jobName?{...sb,jobName:local.jobName}:sb; });
+          setProjs(merged);
+        }
         if(cg&&cg.length>0){ const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setCogs(obj); }
         if(cl&&cl.length>0) setClients(dedupByName(cl));
         if(vn&&vn.length>0) setVendors(vn);

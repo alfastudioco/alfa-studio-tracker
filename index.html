@@ -973,7 +973,7 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
   const [addingField, setAddingField] = React.useState(false);
 
   function set(key, val) {
-    setProjDetails(p=>({...p,[projId]:{...p[projId],[key]:val}}));
+    setProjDetails(p=>({...p,[String(projId)]:{...p[String(projId)],[key]:val}}));
   }
   function setCustom(idx, field, val) {
     const customs = [...(details.customs||[])];
@@ -2312,10 +2312,8 @@ function App(){
         }
         if(pd&&pd.length>0){
           const pdObj={};
-          pd.forEach(i=>{ pdObj[i.projId]={...i}; });
+          pd.forEach(i=>{ pdObj[String(i.projId||i.id)]={...i}; });
           setProjDetails(pdObj);
-        } else {
-          // Nothing in Supabase yet — keep whatever is in memory
         }
         // Always merge Supabase + localStorage for proposals
         (()=>{
@@ -2479,6 +2477,8 @@ function App(){
     const flat=Object.entries(projDetails).map(([projId,data])=>{
       const files=(data.files||[]).map(f=>{
         if(f.url){ const {data:_,...rest}=f; return rest; }
+        // Don't save large base64 to Supabase, it'll fail silently
+        if(f.data&&f.data.length>100000) { const {data:_,...rest}=f; return rest; }
         return f;
       });
       return {id:String(projId),projId:+projId,...data,files};
@@ -2584,15 +2584,21 @@ function App(){
         if(pd&&pd.length>0){
           const obj={};
           pd.forEach(i=>{
-            // Keep existing files from memory (may have base64 or newer uploads)
-            const existing = projDetails[i.projId];
-            const existingFiles = existing ? (existing.files||[]) : [];
-            // Merge: use Supabase files if they have URLs, fallback to memory files
+            const key = String(i.projId||i.id);
+            const existing = projDetails[key];
+            const memFiles = existing ? (existing.files||[]) : [];
             const sbFiles = i.files||[];
-            const mergedFiles = sbFiles.length>0 ? sbFiles : existingFiles;
-            obj[i.projId]={...i, files:mergedFiles};
+            // Union: keep all unique files from both memory and Supabase
+            const seen = new Set();
+            const mergedFiles = [...sbFiles, ...memFiles].filter(f=>{
+              const k = String(f.id);
+              if(seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+            obj[key]={...i, files:mergedFiles};
           });
-          // Keep any projDetails not in Supabase (local only)
+          // Keep any local projDetails not yet in Supabase
           Object.keys(projDetails).forEach(projId=>{
             if(!obj[projId]) obj[projId]=projDetails[projId];
           });
@@ -3574,10 +3580,11 @@ function App(){
               const url=await uploadFile("project-files",path,file,file.type);
               const newFile={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
               setProjDetails(p=>{
-                const updated={...p,[addPhotoSheet]:{...(p[addPhotoSheet]||{}),files:[...((p[addPhotoSheet]||{}).files||[]),newFile]}};
+                const key=String(addPhotoSheet);
+                const updated={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),newFile]}};
                 // Save immediately to Supabase with the new file
-                const projData = updated[addPhotoSheet];
-                const flat=[{id:String(addPhotoSheet),projId:+addPhotoSheet,...projData,files:(projData.files||[]).map(f=>f.url?{...f,data:undefined}:f)}];
+                const projData = updated[String(addPhotoSheet)];
+                const flat=[{id:String(addPhotoSheet),projId:+addPhotoSheet,...projData,files:(projData&&projData.files||[]).map(f=>f.url?{...f,data:undefined}:f)}];
                 dbSave("projdetails", flat);
                 return updated;
               });

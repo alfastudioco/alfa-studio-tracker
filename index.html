@@ -1893,7 +1893,7 @@ function App(){
   const [logCustomStart,setLogCustomStart]     = useState("");
   const [logCustomEnd,setLogCustomEnd]         = useState("");
   const [ef,setEf] = useState({name:"",role:ROLES[0],rate:""});
-  const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
+  const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[],salePrice:"",notes:"",jobName:""});
   const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
 
   // Persist — use ref to skip first render so we don't overwrite Supabase on load

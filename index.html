@@ -1017,7 +1017,21 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
     e.target.value="";
   }
   function removeFile(id) {
-    set("files",(details.files||[]).filter(f=>f.id!==id));
+    const file = (details.files||[]).find(f=>f.id===id);
+    const newFiles = (details.files||[]).filter(f=>f.id!==id);
+    // Update state
+    setProjDetails(p=>{
+      const key=String(projId);
+      const updated={...p,[key]:{...(p[key]||{}),files:newFiles}};
+      // Save immediately to Supabase
+      const projData=updated[key];
+      dbSave("projdetails",[{id:key,projId:+projId,...projData,files:newFiles.map(f=>f.url?{...f,data:undefined}:f)}]);
+      return updated;
+    });
+    // Also delete from Supabase Storage if it has a path
+    if(file&&file.path){
+      deleteFile("project-files", file.path).catch(e=>console.warn("Could not delete from storage:",e));
+    }
   }
 
   const inp = {width:"100%",background:faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",boxSizing:"border-box"};

@@ -1879,6 +1879,12 @@ function App(){
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
   const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
   const [proposals,setProposals]       = useState([]);
+  const [menuSheet,setMenuSheet]       = useState(null);
+  const [addNoteSheet,setAddNoteSheet] = useState(null);
+  const [addPhotoSheet,setAddPhotoSheet] = useState(null);
+  const [quickSheet,setQuickSheet]     = useState(null);
+  const [quickNote,setQuickNote]       = useState("");
+  const [workerFiles,setWorkerFiles]   = useState(null);
   const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
   const [confirmEmp,setConfirmEmp]     = useState(null);
@@ -1963,6 +1969,12 @@ function App(){
     }
   },[projs]);
   useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{
+    if(!dbReady||proposals.length===0) return;
+    const flat=proposals.map(p=>{ const {generatedHtml,...rest}=p; return rest; });
+    dbSave("proposals", flat);
+    try{localStorage.setItem("alfa_proposals",JSON.stringify(proposals));}catch{}
+  },[proposals]);
   useEffect(()=>{
     try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
     if(isFirstRender.current.projPayments){isFirstRender.current.projPayments=false;return;}
@@ -2452,7 +2464,7 @@ function App(){
                           isLive&&h("span",{style:{marginLeft:6,fontSize:10,fontWeight:700,color:T.green,background:T.green+"15",borderRadius:10,padding:"1px 6px"}},"● Live")
                         ),
                         h("button",{onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"6px 12px",background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"33"}},"💰"),
-                        h("button",{onClick:e=>{e.stopPropagation();setExpandProj(isExp?null:proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:13,padding:"6px 10px",background:T.faint,color:T.sub,border:"1px solid "+T.border}},isExp?"▲":"▼")
+                        h("button",{onClick:e=>{e.stopPropagation();setMenuSheet(proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:16,padding:"4px 10px",background:T.faint,color:T.sub,border:"1px solid "+T.border}},"···")
                       ),
                       // Status + deadline + crew — compact single row
                       h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}},
@@ -2462,6 +2474,24 @@ function App(){
                         proj.deadline&&h("span",{style:{fontSize:10,color:T.dim}},"Due "+proj.deadline),
                         crew.map(e=>h("span",{key:e.id,style:{fontSize:10,color:e.color,fontWeight:700}},e.name))
                       ),
+                      // File thumbnail strip
+                      (()=>{
+                        const files=(projDetails[String(proj.id)]||projDetails[proj.id]||{}).files||[];
+                        if(files.length===0) return null;
+                        return h("div",{style:{display:"flex",gap:6,alignItems:"center",padding:"8px 0 4px",borderTop:"1px solid "+T.line,marginTop:8}},
+                          files.slice(0,4).map(f=>
+                            h("div",{key:f.id,onClick:e=>{e.stopPropagation();if(f.url)window.open(f.url,"_blank");},
+                              style:{width:44,height:44,borderRadius:6,overflow:"hidden",flexShrink:0,cursor:"pointer",
+                                background:T.faint,border:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"center"}},
+                              f.url&&(f.type||"").startsWith("image")
+                                ?h("img",{src:f.url,style:{width:"100%",height:"100%",objectFit:"cover"}})
+                                :h("span",{style:{fontSize:18}},(f.type||"").includes("pdf")?"📄":"📎")
+                            )
+                          ),
+                          files.length>4&&h("span",{style:{fontSize:11,color:T.dim}},"+"+( files.length-4)+" more")
+                        );
+                      })(),
+
                       // Numbers row — Hours · Labor · Materials
                       (()=>{
                         const ct=projCogsTotals(proj.id);

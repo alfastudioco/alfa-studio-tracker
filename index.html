@@ -31,7 +31,7 @@ const {useState, useEffect, createElement:h} = React;
 //  -- Supabase -----------------------------------------------
 const SB_URL = "https://dasufgubibuutrpwounv.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhc3VmZ3ViaWJ1dXRycHdvdW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTA3NzUsImV4cCI6MjA5MDQ2Njc3NX0.Uq8mP5RW0MhLBvInhUW4mxQVNa3sH4ak-1WRU4KRp14";
-const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
+const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Range":"0-9999","Prefer":"return=representation"};
 
 // Supabase Storage helpers
 const SB_STORAGE_URL = SB_URL+"/storage/v1";

@@ -33,6 +33,25 @@ const SB_URL = "https://dasufgubibuutrpwounv.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhc3VmZ3ViaWJ1dXRycHdvdW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTA3NzUsImV4cCI6MjA5MDQ2Njc3NX0.Uq8mP5RW0MhLBvInhUW4mxQVNa3sH4ak-1WRU4KRp14";
 const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
+// Supabase Storage helpers
+const SB_STORAGE_URL = SB_URL+"/storage/v1";
+
+async function uploadFile(bucket, path, file, contentType) {
+  const r = await fetch(SB_STORAGE_URL+"/object/"+bucket+"/"+path, {
+    method: "POST",
+    headers: {...SB_HEADERS, "Content-Type": contentType, "x-upsert": "true"},
+    body: file
+  });
+  if(!r.ok){ const t=await r.text(); throw new Error("Upload failed: "+t); }
+  return SB_STORAGE_URL+"/object/public/"+bucket+"/"+path;
+}
+
+async function deleteFile(bucket, path) {
+  await fetch(SB_STORAGE_URL+"/object/"+bucket+"/"+path, {
+    method: "DELETE", headers: SB_HEADERS
+  });
+}
+
 async function dbLoad(table) {
   try {
     const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {
@@ -103,8 +122,8 @@ const ROLE_TABS = {
 };
 const COLORS = ["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5"];
 const ROLES = ["Master Carpenter","Finisher","Assembler","CNC Operator","Apprentice","Project Manager","Installer","Shop Hand"];
-const STATUSES = ["Not Started","In Progress","On Hold","Completed"];
-const SC = {"Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
+const STATUSES = ["Needs Quote","Not Started","In Progress","On Hold","Completed"];
+const SC = {"Needs Quote":"#2563EB","Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
 
 const T = {
   bg:"#F8F7F4", surf:"#FFFFFF", border:"#E5E2DC", line:"#F0EDE8",
@@ -1238,7 +1257,7 @@ function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProj
     // ── Quick actions row ──
     h("div",{style:{padding:"10px 16px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid "+T.line}},
       h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
-      h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo],salePrice:proj.salePrice||"",notes:proj.notes||""});setEditingProj(proj.id);}}),
+      h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo],salePrice:proj.salePrice||"",notes:proj.notes||"",jobName:proj.jobName||""});setEditingProj(proj.id);}}),
       h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmProj(proj)})
     ),
 
@@ -1770,10 +1789,11 @@ function App(){
   useEffect(()=>{
     (async()=>{
       try {
-        const [e,p,en,cl,vn,cg,pn,co,pp] = await Promise.all([
+        const [e,p,en,cl,vn,cg,pn,co,pp,pd,pr] = await Promise.all([
           dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
           dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
-          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments")
+          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments"),
+          dbLoad("projdetails"), dbLoad("proposals")
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
         setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
@@ -1798,6 +1818,16 @@ function App(){
           const ppObj={};
           pp.forEach(i=>{ if(!ppObj[i.projId])ppObj[i.projId]=[]; ppObj[i.projId].push(i); });
           setProjPayments(ppObj);
+        }
+        if(pd&&pd.length>0){
+          const obj={};
+          pd.forEach(i=>{ const key=String(i.projId||i.id); obj[key]={...i,files:i.files||[]}; });
+          setProjDetails(obj);
+        }
+        if(pr&&pr.length>0){
+          const localPr=(() => { try{return JSON.parse(localStorage.getItem("alfa_proposals")||"[]");}catch{return[];} })();
+          const merged=pr.map(p=>{ const lp=localPr.find(x=>String(x.id)===String(p.id)); return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p; });
+          setProposals(merged);
         }
       } catch(err) {
         console.error("Initial load error", err);
@@ -2313,7 +2343,29 @@ function App(){
                 ),
                 // Projects nested inside
                 h("div",{style:{padding:"8px 8px 4px",background:T.bg}},
-                  ...clientProjs.map(proj=>{
+                  ...(()=>{
+                    const sorted=[...clientProjs].sort((a,b)=>{
+                      const ja=a.jobName||""; const jb=b.jobName||"";
+                      if(ja&&!jb) return -1; if(!ja&&jb) return 1;
+                      return ja.localeCompare(jb)||a.name.localeCompare(b.name);
+                    });
+                    let lastJob=null;
+                    const els=[];
+                    sorted.forEach(proj=>{
+                      const job=proj.jobName&&proj.jobName.trim()?proj.jobName.trim():null;
+                      if(job!==lastJob){
+                        lastJob=job;
+                        if(job) els.push(h("div",{key:"jh-"+job+cc,style:{
+                          display:"flex",alignItems:"center",gap:8,
+                          padding:"5px 10px",margin:"6px 0 3px",
+                          background:cc+"10",borderRadius:6,
+                          borderLeft:"3px solid "+cc
+                        }},
+                          h("span",{style:{fontSize:11,fontWeight:700,color:cc,flex:1}},job),
+                          h("span",{style:{fontSize:10,color:cc,opacity:0.6}},sorted.filter(p=>p.jobName&&p.jobName.trim()===job).length+" room"+(sorted.filter(p=>p.jobName&&p.jobName.trim()===job).length!==1?"s":""))
+                        ));
+                      }
+                      els.push((proj=>{
             const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
             const hrs=projMs(proj.id);
             const isLive=active.some(e=>e.projId===proj.id);
@@ -2340,6 +2392,26 @@ function App(){
                         h("button",{onClick:()=>{setShowQuickClient(false);setQuickClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
                       )
                     ),
+                    h(Field,{label:"Job / Group",child:
+                      h("div",null,
+                        h("select",{value:pf.jobName==="__new__"?"__new__":pf.jobName||"",
+                          onChange:e=>{ if(e.target.value!=="__new__") setPf({...pf,jobName:e.target.value}); else setPf({...pf,jobName:"__new__"}); },
+                          style:{width:"100%",background:"#F5F3EF",border:"1px solid #E5E2DC",borderRadius:6,color:pf.jobName?T.text:T.dim,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",appearance:"none",cursor:"pointer"}},
+                          h("option",{value:""},"— No group —"),
+                          [...new Set(projs.filter(p=>p.jobName&&p.jobName!=="__new__").map(p=>p.jobName))].sort().map(j=>
+                            h("option",{key:j,value:j},j)
+                          ),
+                          h("option",{value:"__new__"},"+ New group…")
+                        ),
+                        (pf.jobName==="__new__")&&h("input",{
+                          autoFocus:true,
+                          placeholder:"e.g. Keystone Residence",
+                          onBlur:e=>{ if(e.target.value.trim()) setPf({...pf,jobName:e.target.value.trim()}); else setPf({...pf,jobName:""}); },
+                          onKeyDown:e=>{ if(e.key==="Enter"&&e.target.value.trim()) setPf({...pf,jobName:e.target.value.trim()}); },
+                          style:{marginTop:6,width:"100%",background:"#F5F3EF",border:"1.5px solid #2563EB",borderRadius:6,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"}
+                        })
+                      )
+                    }),
                     h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
                     h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
                     h("div",{style:{marginBottom:14}},
@@ -2448,8 +2520,11 @@ function App(){
                     })
                   )
                 );
-              })
-            ) // close projects padding div
+              })(proj));
+                    });
+                    return els;
+                  })()
+                ) // close projects padding div
           ) // close group card
           ]; // close inner array
             }); // close flatMap

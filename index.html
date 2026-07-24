@@ -1797,7 +1797,7 @@ function App(){
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
         setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
-        setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
+        console.log("setProjs called with:", p&&p.length); setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
         setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
         if(cl&&cl.length>0) setClients(cl);
         else { const lc=load("alfa_clients",[]); if(lc.length>0) setClients(lc); }

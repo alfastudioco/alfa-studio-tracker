@@ -1825,9 +1825,11 @@ function App(){
           setProjDetails(obj);
         }
         if(pr&&pr.length>0){
-          const localPr=(() => { try{return JSON.parse(localStorage.getItem("alfa_proposals")||"[]");}catch{return[];} })();
-          const merged=pr.map(p=>{ const lp=localPr.find(x=>String(x.id)===String(p.id)); return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p; });
-          setProposals(merged);
+          try {
+            const localPr=JSON.parse(localStorage.getItem("alfa_proposals")||"[]");
+            const merged=pr.map(p=>{ const lp=localPr.find(x=>String(x.id)===String(p.id)); return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p; });
+            setProposals(merged);
+          } catch(e) { setProposals(pr); }
         }
       } catch(err) {
         console.error("Initial load error", err);
@@ -1876,6 +1878,7 @@ function App(){
   const [confirmProj,setConfirmProj]   = useState(null);
   const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
   const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
+  const [proposals,setProposals]       = useState([]);
   const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
   const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
   const [confirmEmp,setConfirmEmp]     = useState(null);

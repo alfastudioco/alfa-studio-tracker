@@ -54,12 +54,12 @@ async function deleteFile(bucket, path) {
 
 async function dbLoad(table) {
   try {
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&limit=1000", {
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*", {
       method: "GET",
       mode: "cors",
-      headers: SB_HEADERS
+      headers: {"apikey": SB_KEY, "Authorization": "Bearer "+SB_KEY}
     });
-    if (!r.ok && r.status !== 206) { console.error("dbLoad failed", table, r.status); return null; }
+    if (!r.ok) { console.error("dbLoad failed", table, r.status); return null; }
     const rows = await r.json();
     if (!Array.isArray(rows) || rows.length===0) return null;
     return rows.map(row => row.data);

@@ -1907,6 +1907,7 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
   const [showImport,setShowImport]       = React.useState(false);
   const [selectedProjs,setSelectedProjs] = React.useState([]);
   const [importFilter,setImportFilter]   = React.useState("All");
+  const [importFileSelections,setImportFileSelections] = React.useState({}); // {projId: Set of file ids to include}
   const [importPropId,setImportPropId]   = React.useState(null); // proposal being edited // proposal id being generated
 
   const blank = {
@@ -2172,7 +2173,15 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
       }
 
       // Store generated HTML in proposal record
-      setProposals(p=>p.map(x=>x.id===prop.id?{...x,generatedHtml:aiHtml,generatedAt:new Date().toISOString().slice(0,10)}:x));
+      // Save generated HTML to Supabase Storage so it's available on all devices
+      const htmlBlob = new Blob([aiHtml], {type:'text/html'});
+      const htmlPath = 'proposals/proposal-'+prop.id+'.html';
+      let htmlUrl = null;
+      try {
+        htmlUrl = await uploadFile('project-files', htmlPath, htmlBlob, 'text/html');
+      } catch(e) { console.warn('Could not save proposal to storage:', e); }
+
+      setProposals(p=>p.map(x=>x.id===prop.id?{...x,generatedHtml:aiHtml,generatedHtmlUrl:htmlUrl,generatedAt:new Date().toISOString().slice(0,10)}:x));
 
       // Open in new tab
       const blob = new Blob([aiHtml],{type:"text/html"});
@@ -2242,16 +2251,46 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
         projs.filter(proj=>importFilter==="All"||proj.status===importFilter).map(proj=>{
           const sel = selectedProjs.includes(proj.id);
           const salePrice = +proj.salePrice||0;
-          const cogsTotal = (cogs[proj.id]||[]).reduce((s,i)=>s+(+i.amount||0),0);
-          return h("div",{key:proj.id,onClick:()=>setSelectedProjs(p=>sel?p.filter(x=>x!==proj.id):[...p,proj.id]),
-            style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,border:"1.5px solid "+(sel?T.blue:T.border),background:sel?T.blue+"08":T.surf,cursor:"pointer"}},
-            h("div",{style:{width:18,height:18,borderRadius:4,border:"2px solid "+(sel?T.blue:T.border),background:sel?T.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
-              sel&&h("span",{style:{color:"#FFF",fontSize:11,fontWeight:700}},"✓")
+          const files = (projDetails[String(proj.id)]||{}).files||[];
+          const selFiles = importFileSelections[proj.id] || new Set(files.map(f=>f.id));
+          return h("div",{key:proj.id,
+            style:{borderRadius:8,border:"1.5px solid "+(sel?T.blue:T.border),background:sel?T.blue+"05":T.surf,marginBottom:4}},
+            // Project row
+            h("div",{onClick:()=>{
+              setSelectedProjs(p=>sel?p.filter(x=>x!==proj.id):[...p,proj.id]);
+              if(!sel&&!importFileSelections[proj.id]){
+                setImportFileSelections(p=>({...p,[proj.id]:new Set(files.map(f=>f.id))}));
+              }
+            },style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:"pointer"}},
+              h("div",{style:{width:18,height:18,borderRadius:4,border:"2px solid "+(sel?T.blue:T.border),background:sel?T.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                sel&&h("span",{style:{color:"#FFF",fontSize:11,fontWeight:700}},"✓")
+              ),
+              h("div",{style:{flex:1}},
+                h("div",{style:{fontSize:13,fontWeight:600,color:T.text}},proj.name),
+                h("div",{style:{fontSize:11,color:T.sub}},
+                  [proj.client, proj.status, salePrice>0?"$"+salePrice.toLocaleString():null].filter(Boolean).join(" · ")
+                )
+              ),
+              files.length>0&&h("span",{style:{fontSize:10,color:sel?T.blue:T.dim}},files.length+" file"+(files.length!==1?"s":""))
             ),
-            h("div",{style:{flex:1}},
-              h("div",{style:{fontSize:13,fontWeight:600,color:T.text}},proj.name),
-              h("div",{style:{fontSize:11,color:T.sub}},
-                [proj.client, proj.status, salePrice>0?"$"+salePrice.toLocaleString():null].filter(Boolean).join(" · ")
+            // File selector when project is selected
+            sel&&files.length>0&&h("div",{style:{padding:"6px 12px 10px",borderTop:"1px solid "+T.line}},
+              h("div",{style:{fontSize:10,color:T.sub,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}},"Select files to include:"),
+              h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
+                files.map(f=>{ const fSel=selFiles.has(f.id);
+                  return h("div",{key:f.id,onClick:e=>{e.stopPropagation();
+                    setImportFileSelections(p=>{
+                      const s=new Set(p[proj.id]||files.map(x=>x.id));
+                      fSel?s.delete(f.id):s.add(f.id);
+                      return {...p,[proj.id]:s};
+                    });
+                  },style:{display:"flex",alignItems:"center",gap:5,padding:"4px 8px",borderRadius:6,
+                    border:"1px solid "+(fSel?T.blue:T.border),background:fSel?T.blue+"10":T.faint,cursor:"pointer"}},
+                    h("span",{style:{fontSize:11}},(f.type||"").includes("pdf")?"📄":"🖼️"),
+                    h("span",{style:{fontSize:11,color:fSel?T.blue:T.dim,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
+                    fSel&&h("span",{style:{fontSize:10,color:T.blue,fontWeight:700}},"✓")
+                  );
+                })
               )
             )
           );
@@ -2260,7 +2299,7 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
       h("div",{style:{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}},
         h("span",{style:{fontSize:12,color:T.sub}},selectedProjs.length+" project"+(selectedProjs.length!==1?"s":"")+" selected"),
         h("div",{style:{display:"flex",gap:6}},
-          h("button",{onClick:()=>{setShowImport(false);setSelectedProjs([]);setImportPropId(null);},style:{borderRadius:8,cursor:"pointer",fontSize:12,padding:"7px 14px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+          h("button",{onClick:()=>{setShowImport(false);setSelectedProjs([]);setImportPropId(null);setImportFileSelections({});},style:{borderRadius:8,cursor:"pointer",fontSize:12,padding:"7px 14px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
           h("button",{
             disabled:selectedProjs.length===0,
             onClick:()=>{
@@ -2271,7 +2310,9 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
               // Build rooms from each project's sale price
               const rooms = selProjObjs.map(p=>{
                 const pd = projDetails[String(p.id)]||projDetails[p.id]||{};
-                const files = pd.files||[];
+                const allFiles = pd.files||[];
+                const selFileIds = importFileSelections[p.id];
+                const files = selFileIds ? allFiles.filter(f=>selFileIds.has(f.id)) : allFiles;
                 return {
                 id:Date.now()+Math.random(),
                 name:p.name,
@@ -2444,7 +2485,19 @@ function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,
             h("button",{onClick:()=>{setForm({...prop});setEditingId(prop.id);setExpandId(null);},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.faint,color:T.text,border:"1px solid "+T.border}},"✏ Edit"),
             h("button",{onClick:()=>{setSelectedProjs(prop.rooms.map(r=>r.sourceProjectId).filter(Boolean));setImportPropId(prop.id);setImportFilter("All");setShowImport(true);},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.green+"12",color:T.green,border:"1px solid "+T.green+"33"}},"+ Projects"),
             h("button",{onClick:()=>shareProposal(prop),disabled:generating===prop.id,style:{borderRadius:6,cursor:generating===prop.id?"wait":"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.blue+"12",color:T.blue,border:"1px solid "+T.blue+"33",opacity:generating===prop.id?0.6:1}},generating===prop.id?"⟳ Generating…":"✨ Generate Proposal"),
-            prop.generatedHtml&&h("button",{onClick:()=>{const blob=new Blob([prop.generatedHtml],{type:"text/html"});window.open(URL.createObjectURL(blob),"_blank");},style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"👁 View"),
+            (prop.generatedHtml||prop.generatedHtmlUrl)&&h("button",{onClick:()=>{
+              if(prop.generatedHtmlUrl&&!prop.generatedHtml){
+                // Fetch from Supabase Storage
+                fetch(prop.generatedHtmlUrl).then(r=>r.text()).then(html=>{
+                  setProposals(p=>p.map(x=>x.id===prop.id?{...x,generatedHtml:html}:x));
+                  const blob=new Blob([html],{type:"text/html"});
+                  window.open(URL.createObjectURL(blob),"_blank");
+                }).catch(()=>{ const blob=new Blob([generateShareHTML(prop)],{type:"text/html"}); window.open(URL.createObjectURL(blob),"_blank"); });
+              } else {
+                const blob=new Blob([prop.generatedHtml],{type:"text/html"});
+                window.open(URL.createObjectURL(blob),"_blank");
+              }
+            },style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"👁 View"),
             prop.generatedHtml&&h("button",{onClick:()=>downloadProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.amber+"12",color:T.amber,border:"1px solid "+T.amber+"33"}},"⬇ Download PDF"),
             h("button",{onClick:()=>emailProposal(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",background:T.green+"12",color:T.green,border:"1px solid "+T.green+"33"}},"✉ Email Client"),
             prop.status!=="Converted"&&h("button",{onClick:()=>convertToProject(prop),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",background:"#9333EA"+"12",color:"#9333EA",border:"1px solid "+"#9333EA"+"33"}},"→ Convert to Project"),

@@ -31,7 +31,7 @@ const {useState, useEffect, createElement:h} = React;
 //  -- Supabase -----------------------------------------------
 const SB_URL = "https://dasufgubibuutrpwounv.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhc3VmZ3ViaWJ1dXRycHdvdW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTA3NzUsImV4cCI6MjA5MDQ2Njc3NX0.Uq8mP5RW0MhLBvInhUW4mxQVNa3sH4ak-1WRU4KRp14";
-const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Range":"0-9999","Prefer":"return=representation"};
+const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
 // Supabase Storage helpers
 const SB_STORAGE_URL = SB_URL+"/storage/v1";
@@ -54,12 +54,12 @@ async function deleteFile(bucket, path) {
 
 async function dbLoad(table) {
   try {
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&limit=1000", {
       method: "GET",
       mode: "cors",
       headers: SB_HEADERS
     });
-    if (!r.ok) { console.error("dbLoad failed", table, r.status); return null; }
+    if (!r.ok && r.status !== 206) { console.error("dbLoad failed", table, r.status); return null; }
     const rows = await r.json();
     if (!Array.isArray(rows) || rows.length===0) return null;
     return rows.map(row => row.data);
@@ -1797,7 +1797,7 @@ function App(){
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
         setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
-        console.log("setProjs called with:", p&&p.length); setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
+        setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
         setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
         if(cl&&cl.length>0) setClients(cl);
         else { const lc=load("alfa_clients",[]); if(lc.length>0) setClients(lc); }

@@ -18,6 +18,8 @@ input,select,button{font-family:inherit;}
     to   { opacity:1; transform:translate(-50%,0); }
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";</script>
 </head>
 <body>
 <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#78716C;font-size:14px;">Loading Alfa Studio…</div></div>
@@ -31,32 +33,9 @@ const SB_URL = "https://dasufgubibuutrpwounv.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhc3VmZ3ViaWJ1dXRycHdvdW52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTA3NzUsImV4cCI6MjA5MDQ2Njc3NX0.Uq8mP5RW0MhLBvInhUW4mxQVNa3sH4ak-1WRU4KRp14";
 const SB_HEADERS = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY};
 
-// Supabase Storage helpers
-const SB_STORAGE_URL = SB_URL+"/storage/v1";
-
-async function uploadFile(bucket, path, file, contentType) {
-  const r = await fetch(SB_STORAGE_URL+"/object/"+bucket+"/"+path, {
-    method: "POST",
-    headers: {...SB_HEADERS, "Content-Type": contentType, "x-upsert": "true"},
-    body: file
-  });
-  if(!r.ok){ const t=await r.text(); throw new Error("Upload failed: "+t); }
-  return SB_STORAGE_URL+"/object/public/"+bucket+"/"+path;
-}
-
-async function deleteFile(bucket, path) {
-  await fetch(SB_STORAGE_URL+"/object/"+bucket+"/"+path, {
-    method: "DELETE", headers: SB_HEADERS
-  });
-}
-
-function getFileUrl(bucket, path) {
-  return SB_STORAGE_URL+"/object/public/"+bucket+"/"+path;
-}
-
 async function dbLoad(table) {
   try {
-    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*", {
+    const r = await fetch(SB_URL+"/rest/v1/"+table+"?select=*&order=id", {
       method: "GET",
       mode: "cors",
       headers: SB_HEADERS
@@ -117,15 +96,15 @@ const ADMIN_USERS = [
 ];
 // Tab access per role
 const ROLE_TABS = {
-  owner:      ["projects","proposals","crew","clients","vendors","payroll"],
-  manager:    ["projects","proposals","clients","crew"],
+  owner:      ["projects","crew","clients","vendors","payroll"],
+  manager:    ["projects","clients","crew"],
   bookkeeper: ["vendors","projects","payroll"],
   foreman:    ["projects","crew"],
 };
 const COLORS = ["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5"];
 const ROLES = ["Master Carpenter","Finisher","Assembler","CNC Operator","Apprentice","Project Manager","Installer","Shop Hand"];
-const STATUSES = ["Needs Quote","Not Started","In Progress","On Hold","Completed"];
-const SC = {"Needs Quote":"#2563EB","Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
+const STATUSES = ["Not Started","In Progress","On Hold","Completed"];
+const SC = {"Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
 
 const T = {
   bg:"#F8F7F4", surf:"#FFFFFF", border:"#E5E2DC", line:"#F0EDE8",
@@ -163,9 +142,6 @@ const DEFAULT_ENTRIES=[
 ];
 
 //  -- Helpers ------------------------------------------------
-// Deduplicate array by name (case insensitive)
-function dedupByName(arr){ const seen=new Set(); return arr.filter(x=>{ const k=(x.name||"").toLowerCase().trim(); if(seen.has(k))return false; seen.add(k); return true; }); }
-
 function fmtHrs(ms){
   const h=ms/3600000;
   if(h<0.017)return"—";
@@ -173,14 +149,14 @@ function fmtHrs(ms){
   const hrs=Math.floor(h),mins=Math.round((h-hrs)*60);
   return mins>0?`${hrs}h ${mins}m`:`${hrs}h`;
 }
-function fmtTime(ms){return new Date(ms).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});}
-function fmtDate(ms){return new Date(ms).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});}
+function fmtTime(ms){return new Date(ms).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});}
+function fmtDate(ms){return new Date(ms).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"});}
 function dayKey(ms){const d=new Date(ms);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function dayLabel(key){
   const tk=dayKey(Date.now()),yk=dayKey(Date.now()-86400000);
   if(key===tk)return"Today"; if(key===yk)return"Yesterday";
   const[y,m,d]=key.split("-").map(Number);
-  return new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  return new Date(y,m-1,d).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"});
 }
 
 //  -- LiveTimer ----------------------------------------------
@@ -205,15 +181,13 @@ function Btn({label,onClick,variant="primary",size="md"}){
   return h("button",{onClick,style:styles[variant]||styles.primary},label);
 }
 
-function Field({label,value,onChange,type="text",options,child}){
+function Field({label,value,onChange,type="text",options}){
   const s={width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"};
   return h("div",{style:{marginBottom:14}},
     h("div",{style:{fontSize:11,color:T.sub,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},label),
-    child
-      ? child
-      : options
-        ? h("select",{value,onChange:e=>onChange(e.target.value),style:s},options.map(o=>h("option",{key:o,value:o},o)))
-        : h("input",{type,value,onChange:e=>onChange(e.target.value),style:s})
+    options
+      ? h("select",{value,onChange:e=>onChange(e.target.value),style:s},options.map(o=>h("option",{key:o,value:o},o)))
+      : h("input",{type,value,onChange:e=>onChange(e.target.value),style:s})
   );
 }
 
@@ -557,13 +531,12 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
   const [scanning, setScanning] = React.useState(false);
   const [confirmCogs, setConfirmCogs] = React.useState(null); // item to delete
   const [scanPreview, setScanPreview] = React.useState(null); // base64 image
-  const [scanOriginal, setScanOriginal] = React.useState(null); // {name, type, data} original file
   const [scanError, setScanError] = React.useState("");
 
   async function handleInvoiceUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
-    setScanning(true); setScanError(""); setScanPreview(null); setScanOriginal(null);
+    setScanning(true); setScanError(""); setScanPreview(null);
     try {
       const isPDF = file.type === "application/pdf";
 
@@ -572,15 +545,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
       let base64, mediaType;
 
       if (isPDF) {
-        // Load PDF.js lazily only when needed
-        if(!window.pdfjsLib) {
-          await new Promise((res,rej)=>{
-            const s=document.createElement('script');
-            s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-            s.onload=()=>{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(); };
-            s.onerror=rej; document.head.appendChild(s);
-          });
-        }
+        // Use PDF.js to render the first page as an image
         const pdfjsLib = window.pdfjsLib;
         if (!pdfjsLib) throw new Error("PDF reader not loaded");
 
@@ -595,7 +560,6 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         base64 = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
         mediaType = "image/jpeg";
         setScanPreview("data:image/jpeg;base64," + base64);
-        setScanOriginal({name:file.name, type:"application/pdf", data:null, isPdf:true});
       } else {
         // Compress image before sending — mobile photos can be 5-10MB
         const compressed = await new Promise((res,rej) => {
@@ -621,7 +585,6 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         base64 = compressed;
         mediaType = "image/jpeg";
         setScanPreview("data:image/jpeg;base64," + base64);
-        setScanOriginal({name:file.name, type:file.type, data:"data:image/jpeg;base64,"+base64});
       }
 
       // Call Claude API to extract invoice data
@@ -635,7 +598,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
           "anthropic-dangerous-direct-browser-access": "true"
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-sonnet-4-20250514",
           max_tokens: 500,
           messages: [{
             role: "user",
@@ -719,7 +682,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
   function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
-    const item = {id:editId||Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", receipt:scanOriginal||undefined};
+    const item = {id:editId||Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
     setCogs(p=>({...p,[projId]: editId
       ? (p[projId]||[]).map(i=>i.id===editId?item:i)
       : [...(p[projId]||[]), item]
@@ -878,31 +841,11 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
 
 //  -- ProjEmpLog: groups project entries by employee with collapsible rows --
-function ProjEmpLog({entries, emps, onDelete, onEdit}) {
-  const [open, setOpen]     = React.useState({});
-  const [editId, setEditId] = React.useState(null);
-  const [editForm, setEditForm] = React.useState({date:"",start:"",end:""});
+function ProjEmpLog({entries, emps, onDelete}) {
+  const [open, setOpen] = React.useState({});
   const toggle = id => setOpen(p=>({...p,[id]:!p[id]}));
 
-  function startEdit(e) {
-    const d = new Date(e.start);
-    const date = d.toISOString().slice(0,10);
-    const startT = new Date(e.start).toTimeString().slice(0,5);
-    const endT = new Date(e.end).toTimeString().slice(0,5);
-    setEditId(e.id);
-    setEditForm({date, start:startT, end:endT});
-  }
-  function saveEdit(e) {
-    const base = new Date(editForm.date);
-    const [sh,sm] = editForm.start.split(":").map(Number);
-    const [eh,em] = editForm.end.split(":").map(Number);
-    const newStart = new Date(base); newStart.setHours(sh,sm,0,0);
-    const newEnd   = new Date(base); newEnd.setHours(eh,em,0,0);
-    if(newEnd<=newStart) newEnd.setDate(newEnd.getDate()+1); // overnight
-    onEdit({...e, start:newStart.getTime(), end:newEnd.getTime()});
-    setEditId(null);
-  }
-
+  // Group by employee
   const empMap = {};
   entries.forEach(e=>{
     if(!empMap[e.empId]) empMap[e.empId]={ms:0,items:[]};
@@ -915,54 +858,25 @@ function ProjEmpLog({entries, emps, onDelete, onEdit}) {
     items: g.items.sort((a,b)=>b.start-a.start),
   })).sort((a,b)=>b.ms-a.ms);
 
-  const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:6,color:"#1C1917",padding:"4px 6px",fontSize:12,outline:"none"};
-
   return h("div",null,
     groups.map(g=>{
       const isOpen = !!open[g.emp&&g.emp.id];
-      return h("div",{key:(g.emp&&g.emp.id)||"unknown",style:{marginBottom:4}},
+      return h("div",{key:g.emp?.id||"unknown",style:{marginBottom:4}},
+        // Employee row — tap to expand
         h("div",{onClick:()=>g.emp&&toggle(g.emp.id),style:{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#F5F3F0",borderRadius:8,cursor:"pointer",borderLeft:"3px solid "+(g.emp?g.emp.color:"#888")}},
           h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:g.emp?g.emp.color:"#888"}},g.emp?g.emp.name:"Unknown"),
           h("span",{style:{fontSize:13,fontWeight:700,color:"#D97706"}},fmtHrs(g.ms)),
           h("span",{style:{fontSize:11,color:"#A8A29E",marginLeft:4}},isOpen?"▲":"▼")
         ),
+        // Expanded individual entries
         isOpen&&h("div",{style:{paddingLeft:10,paddingTop:3}},
           g.items.map(e=>
-            h("div",{key:e.id,style:{borderBottom:"1px solid #F0EDE8"}},
-              editId===e.id
-                // Edit mode
-                ? h("div",{style:{padding:"8px",background:"#FFFBEB",borderRadius:6,margin:"4px 0"}},
-                    h("div",{style:{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:6}},
-                      h("div",null,
-                        h("div",{style:{fontSize:9,color:"#78716C",marginBottom:2}},"DATE"),
-                        h("input",{type:"date",value:editForm.date,onChange:e=>setEditForm(f=>({...f,date:e.target.value})),style:inp})
-                      ),
-                      h("div",null,
-                        h("div",{style:{fontSize:9,color:"#78716C",marginBottom:2}},"START"),
-                        h("input",{type:"time",value:editForm.start,onChange:e=>setEditForm(f=>({...f,start:e.target.value})),style:inp})
-                      ),
-                      h("div",null,
-                        h("div",{style:{fontSize:9,color:"#78716C",marginBottom:2}},"END"),
-                        h("input",{type:"time",value:editForm.end,onChange:e=>setEditForm(f=>({...f,end:e.target.value})),style:inp})
-                      )
-                    ),
-                    h("div",{style:{display:"flex",gap:6}},
-                      h("button",{onClick:()=>saveEdit(e),style:{background:"#1C1917",color:"#FFF",border:"none",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}},"✓ Save"),
-                      h("button",{onClick:()=>setEditId(null),style:{background:"transparent",color:"#78716C",border:"1px solid #E5E2DC",borderRadius:6,padding:"5px 10px",fontSize:12,cursor:"pointer"}},"Cancel")
-                    )
-                  )
-                // View mode
-                : h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px"}},
-                    h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
-                    h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
-                    h("span",{style:{flex:1}}),
-                    h("span",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},fmtHrs(e.end-e.start)),
-                    h("button",{onClick:ev=>{ev.stopPropagation();startEdit(e);},style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:12,padding:"0 4px"}},"✏"),
-                    e.receipt&&h("button",{onClick:ev=>{ev.stopPropagation();
-              if(e.receipt.data){const w=window.open("","_blank");w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+e.receipt.data+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');}
-            },style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:12,padding:"0 3px"}},"🧾"),
-            h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
-                  )
+            h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:"1px solid #F0EDE8"}},
+              h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
+              h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
+              h("span",{style:{flex:1}}),
+              h("span",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},fmtHrs(e.end-e.start)),
+              h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
             )
           )
         )
@@ -974,16 +888,14 @@ function ProjEmpLog({entries, emps, onDelete, onEdit}) {
 
 
 //  -- ProjectDetails --
-function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, secLabel, defaultTab}) {
+function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, secLabel}) {
   const details = projDetails[projId] || {};
-  const [tab, setTab] = React.useState(defaultTab||"info");
-  React.useEffect(()=>{ if(defaultTab) setTab(defaultTab); },[defaultTab,projId]);
-  const [dragging, setDragging] = React.useState(false);
+  const [tab, setTab] = React.useState("info");
   const [newField, setNewField] = React.useState({name:"",value:""});
   const [addingField, setAddingField] = React.useState(false);
 
   function set(key, val) {
-    setProjDetails(p=>({...p,[String(projId)]:{...p[String(projId)],[key]:val}}));
+    setProjDetails(p=>({...p,[projId]:{...p[projId],[key]:val}}));
   }
   function setCustom(idx, field, val) {
     const customs = [...(details.customs||[])];
@@ -1003,13 +915,8 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
   }
 
   // File handling — store as base64 in state
-
   async function handleFile(e) {
-    const files = Array.from(e.target.files||[]);
-    if(!files.length) return;
-    for(const file of files) { await handleSingleFile(file); }
-  }
-  async function handleSingleFile(file) {
+    const file = e.target.files[0];
     if(!file) return;
     if(file.size > 5*1024*1024) { alert("File too large — max 5MB"); return; }
     const base64 = await new Promise((res,rej)=>{
@@ -1023,21 +930,7 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
     e.target.value="";
   }
   function removeFile(id) {
-    const file = (details.files||[]).find(f=>f.id===id);
-    const newFiles = (details.files||[]).filter(f=>f.id!==id);
-    // Update state
-    setProjDetails(p=>{
-      const key=String(projId);
-      const updated={...p,[key]:{...(p[key]||{}),files:newFiles}};
-      // Save immediately to Supabase
-      const projData=updated[key];
-      dbSave("projdetails",[{id:key,projId:+projId,...projData,files:newFiles.map(f=>f.url?{...f,data:undefined}:f)}]);
-      return updated;
-    });
-    // Also delete from Supabase Storage if it has a path
-    if(file&&file.path){
-      deleteFile("project-files", file.path).catch(e=>console.warn("Could not delete from storage:",e));
-    }
+    set("files",(details.files||[]).filter(f=>f.id!==id));
   }
 
   const inp = {width:"100%",background:faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none",boxSizing:"border-box"};
@@ -1095,32 +988,16 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
 
     // FILES TAB
     tab==="files"&&h("div",{style:{padding:"14px 16px"}},
-      // Drag & drop zone + upload buttons
-      h("div",{
-        onDragOver:e=>{e.preventDefault();setDragging(true);},
-        onDragLeave:()=>setDragging(false),
-        onDrop:async e=>{
-          e.preventDefault();setDragging(false);
-          const files=Array.from(e.dataTransfer.files);
-          for(const file of files){ await handleFile({target:{files:[file]}}); }
-        },
-        style:{border:"2px dashed "+(dragging?T.blue:T.border),borderRadius:12,padding:16,marginBottom:14,
-          background:dragging?T.blue+"08":T.faint,transition:"all 0.2s",textAlign:"center"}},
-        dragging
-          ? h("div",{style:{fontSize:14,fontWeight:600,color:T.blue}},"Drop files here ↓")
-          : h("div",null,
-              h("div",{style:{fontSize:13,color:T.sub,marginBottom:10}},"Drag & drop photos or PDFs here"),
-              h("div",{style:{display:"flex",gap:8,justifyContent:"center"}},
-                h("label",{style:{display:"flex",alignItems:"center",gap:6,background:T.blue+"12",border:"1.5px solid "+T.blue+"44",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
-                  h("input",{type:"file",accept:"image/*",capture:"environment",multiple:true,onChange:handleFile,style:{display:"none"}}),
-                  "📷 Photo"
-                ),
-                h("label",{style:{display:"flex",alignItems:"center",gap:6,background:T.blue+"12",border:"1.5px solid "+T.blue+"44",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
-                  h("input",{type:"file",accept:"image/*,application/pdf,.doc,.docx",multiple:true,onChange:handleFile,style:{display:"none"}}),
-                  "📄 File / PDF"
-                )
-              )
-            )
+      // Upload buttons
+      h("div",{style:{display:"flex",gap:8,marginBottom:14}},
+        h("label",{style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:"10px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
+          h("input",{type:"file",accept:"image/*",capture:"environment",onChange:handleFile,style:{display:"none"}}),
+          "📷 Photo"
+        ),
+        h("label",{style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:T.blue+"12",border:"1.5px dashed "+T.blue+"44",borderRadius:8,padding:"10px",cursor:"pointer",fontSize:12,fontWeight:600,color:T.blue}},
+          h("input",{type:"file",accept:"image/*,application/pdf,.doc,.docx",onChange:handleFile,style:{display:"none"}}),
+          "📄 File / PDF"
+        )
       ),
       // File list
       (details.files||[]).length===0&&h("div",{style:{fontSize:12,color:T.dim,textAlign:"center",padding:24}},"No files yet. Upload photos, drawings, or signed quotes."),
@@ -1134,9 +1011,9 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
             h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
             h("div",{style:{fontSize:11,color:T.dim}},f.date)
           ),
-          // View and Download buttons
-          h("button",{onClick:()=>window.open(f.url||f.data,"_blank"),style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},"View"),
-          h("a",{href:f.url||f.data,download:f.name,target:"_blank",style:{fontSize:11,color:T.green,background:T.green+"12",border:"1px solid "+T.green+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600,textDecoration:"none"}},"⬇"),
+          // View button for images
+          f.type.startsWith("image")&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"View"),
+          f.type==="application/pdf"&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"Open"),
           h("button",{onClick:()=>removeFile(f.id),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
         )
       )
@@ -1178,9 +1055,9 @@ function NotesLog({projId, projNotes, setProjNotes, currentUser, T, line, faint}
     const d = new Date(iso);
     const today = new Date();
     const isToday = d.toDateString()===today.toDateString();
-    const time = d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+    const time = d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
     if(isToday) return "Today "+time;
-    return d.toLocaleDateString("en-US",{month:"short",day:"numeric"})+" · "+time;
+    return d.toLocaleDateString([],{month:"short",day:"numeric"})+" · "+time;
   }
 
   return h("div",{style:{borderTop:"1px solid "+line}},
@@ -1326,7 +1203,7 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
 }
 
 //  -- ProjectExpanded --
-function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
+function ProjectExpanded({proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
   activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
   T,secLabel,card,entryCost,projCogsTotals,currentUser,
   setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
@@ -1344,23 +1221,33 @@ function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,proj
 
 
   function Section({id, label, badge, children}) {
+    const isOpen = openSection===id;
     return h("div",{style:{borderTop:"1px solid "+T.line}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:T.faint}},
-        h("span",{style:{flex:1,fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em"}},label),
-        badge&&h("span",{style:{fontSize:11,fontWeight:600,color:T.sub}},badge)
+      h("div",{onClick:()=>setOpenSection(isOpen?null:id),
+        style:{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",cursor:"pointer",background:isOpen?T.faint:"transparent"}},
+        h("span",{style:{flex:1,fontSize:12,fontWeight:600,color:T.text}},label),
+        badge&&h("span",{style:{fontSize:11,fontWeight:600,color:T.sub}},badge),
+        h("span",{style:{fontSize:11,color:T.dim}},isOpen?"▲":"▼")
       ),
-      h("div",null,children)
+      isOpen&&h("div",{style:{borderTop:"1px solid "+T.line}},children)
     );
   }
 
   return h("div",{style:{borderTop:"1px solid "+T.line}},
+
+    // ── Quick actions row ──
+    h("div",{style:{padding:"10px 16px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:"1px solid "+T.line}},
+      h(Btn,{label:"+ Log",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+      h(Btn,{label:"✏ Edit",size:"sm",variant:"ghost",onClick:e=>{e.stopPropagation();setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline,assignedTo:[...proj.assignedTo],salePrice:proj.salePrice||"",notes:proj.notes||""});setEditingProj(proj.id);}}),
+      h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmProj(proj)})
+    ),
 
     // ── Time Log ──
     h(Section,{id:"timelog",label:"Time Log",badge:hrs>0?fmtHrs(hrs):projDone.length===0?"No entries":null},
       h("div",{style:{padding:"10px 16px"}},
         projDone.length===0
           ? h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No hours logged yet.")
-          : h(ProjEmpLog,{entries:projDone,emps,onDelete:setConfirmEntry,onEdit:e=>setEntries(p=>p.map(x=>x.id===e.id?e:x))})
+          : h(ProjEmpLog,{entries:projDone,emps,onDelete:setConfirmEntry})
       )
     ),
 
@@ -1389,8 +1276,7 @@ function ProjectExpanded({proj,projs,setProjs,emps,done,active,cogs,setCogs,proj
     h(Section,{id:"details",label:"Selections & Photos",
       badge:hasDetails||hasFiles?([(hasDetails?"Selections":""),hasFiles?(details.files.length+" file"+(details.files.length!==1?"s":"")):""].filter(Boolean).join(" · ")):null},
       h(ProjectDetails,{projId:proj.id,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel})
-    ),
-
+    )
   );
 }
 
@@ -1453,8 +1339,7 @@ function ClientsTab({clients,setClients,projs,setProjs,cogs,done,emps,entryCost,
   const [adding,setAdding]             = React.useState(false);
   const [newClient,setNewClient]       = React.useState({name:"",phone:"",email:"",address:"",notes:""});
   const [confirmClient,setConfirmClient] = React.useState(null);
-  const [addingProj,setAddingProj]       = React.useState(null);
-  const [assigningProj,setAssigningProj] = React.useState(null); // client name
+  const [addingProj,setAddingProj]       = React.useState(null); // client name
   const [newProjName,setNewProjName]     = React.useState("");
   const [newProjStatus,setNewProjStatus] = React.useState("Not Started");
 
@@ -1594,25 +1479,14 @@ function ClientsTab({clients,setClients,projs,setProjs,cogs,done,emps,entryCost,
           h("div",{style:{padding:"10px 16px",borderBottom:"1px solid "+T.line}},
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
               h("div",{style:secLabel},"Projects"),
-              h("div",{style:{display:"flex",gap:6}},
-                h("button",{onClick:()=>setAssigningProj(assigningProj===client.name?null:client.name),style:{fontSize:11,fontWeight:700,color:T.green,background:T.green+"12",border:"1px solid "+T.green+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}},"↗ Assign"),
-                h("button",{onClick:()=>{setPf({name:"",client:client.name,status:"Not Started",deadline:"",assignedTo:[],salePrice:""});setEditingProj("new");setAdminTab("projects");},style:{fontSize:11,fontWeight:700,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}},"+ New")
-              )
-            ),
-            // Assign existing project dropdown
-            assigningProj===client.name&&h("div",{style:{marginBottom:8,background:T.faint,borderRadius:8,padding:8}},
-              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,marginBottom:6}},"Assign existing project to "+client.name+":"),
-              h("div",{style:{display:"flex",flexDirection:"column",gap:4,maxHeight:160,overflowY:"auto"}},
-                projs.filter(p=>p.client!==client.name&&p.client!==undefined).map(p=>
-                  h("div",{key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.surf,borderRadius:6,border:"1px solid "+T.border,cursor:"pointer"},
-                    onClick:()=>{setProjs(ps=>ps.map(x=>x.id===p.id?{...x,client:client.name}:x));setAssigningProj(null);}},
-                    h("span",{style:{flex:1,fontSize:12,fontWeight:600,color:T.text}},p.name),
-                    p.client&&h("span",{style:{fontSize:10,color:T.dim}},"from: "+p.client),
-                    h("span",{style:{fontSize:11,color:T.green,fontWeight:700}}),"Assign →"
-                  )
-                ),
-                projs.filter(p=>p.client!==client.name).length===0&&h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No other projects to assign.")
-              )
+              h("button",{
+                onClick:()=>{
+                  setPf({name:"",client:client.name,status:"Not Started",deadline:"",assignedTo:[],salePrice:""});
+                  setEditingProj("new");
+                  setAdminTab("projects");
+                },
+                style:{fontSize:11,fontWeight:700,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 10px",cursor:"pointer"}
+              },"+ New Project")
             ),
             clientProjs.length===0&&h("div",{style:{fontSize:12,color:T.dim,padding:"4px 0"}},"No projects yet."),
             clientProjs.map(p=>{
@@ -1693,8 +1567,6 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
   const inp = {width:"100%",background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"};
   const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
 
-  const [viewingFile, setViewingFile] = React.useState(null);
-
   async function handleFile(e) {
     const file = e.target.files[0];
     if(!file) return;
@@ -1716,7 +1588,7 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
       const resp = await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{"Content-Type":"application/json","x-api-key":_p,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:500,messages:[{role:"user",content:[
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,messages:[{role:"user",content:[
           {type:"image",source:{type:"base64",media_type:"image/jpeg",data:compressed}},
           {type:"text",text:"Extract from this receipt and return ONLY valid JSON with keys: vendor, amount (number), date (YYYY-MM-DD), description (max 60 chars), invoiceNo. Use null for missing."}
         ]}]})
@@ -1796,7 +1668,7 @@ function DateFilter({range,setRange,offset,setOffset,customStart,setCustomStart,
     label=new Intl.DateTimeFormat([],{month:"short",day:"numeric"}).format(d)+" – "+new Intl.DateTimeFormat([],{month:"short",day:"numeric"}).format(new Date(e2-1));
   } else if(range==="month"){
     const d=new Date(now.getFullYear(),now.getMonth()+offset,1);
-    label=d.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+    label=d.toLocaleDateString([],{month:"long",year:"numeric"});
   } else if(range==="year"){
     label=String(now.getFullYear()+offset);
   }
@@ -1885,240 +1757,1069 @@ function makeDragSort(items, setItems) {
   return { itemProps };
 }
 
+//  -- Main App -----------------------------------------------
+function App(){
+  const [emps,setEmps]       = useState(DEFAULT_EMPS);
+  const [projs,setProjs]     = useState(DEFAULT_PROJS);
+  const [entries,setEntries] = useState([]);
+  const [dbReady,setDbReady] = useState(false);
+  const [dbLoading,setDbLoading] = useState(true);
+  const [syncing,setSyncing] = useState(false);
 
-//  -- LiveClock --
-function LiveClock({T}) {
-  const [now, setNow] = React.useState(new Date());
-  React.useEffect(()=>{
-    const t = setInterval(()=>setNow(new Date()), 1000);
-    return ()=>clearInterval(t);
+  // Load from Supabase on mount, fall back to localStorage
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const [e,p,en,cl,vn,cg,pn,co,pp] = await Promise.all([
+          dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
+          dbLoad("clients"),   dbLoad("vendors"),  dbLoad("cogs"),
+          dbLoad("projnotes"), dbLoad("clientorder"), dbLoad("projpayments")
+        ]);
+        // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
+        setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
+        setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
+        setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
+        if(cl&&cl.length>0) setClients(cl);
+        else { const lc=load("alfa_clients",[]); if(lc.length>0) setClients(lc); }
+        if(vn&&vn.length>0) setVendors(vn);
+        else { const lv=load("alfa_vendors",[]); if(lv.length>0) setVendors(lv); }
+        if(cg&&cg.length>0){
+          const cogsObj={};
+          cg.forEach(i=>{ if(!cogsObj[i.projId])cogsObj[i.projId]=[]; cogsObj[i.projId].push(i); });
+          setCogs(cogsObj);
+        } else { const lc=load("alfa_cogs",{}); if(Object.keys(lc).length>0) setCogs(lc); }
+        if(pn&&pn.length>0){
+          const pnObj={};
+          pn.forEach(i=>{ if(!pnObj[i.projId])pnObj[i.projId]=[]; pnObj[i.projId].push(i); });
+          setProjNotes(pnObj);
+        }
+        if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
+        if(pp&&pp.length>0){
+          const ppObj={};
+          pp.forEach(i=>{ if(!ppObj[i.projId])ppObj[i.projId]=[]; ppObj[i.projId].push(i); });
+          setProjPayments(ppObj);
+        }
+      } catch(err) {
+        console.error("Initial load error", err);
+        // Full fallback to localStorage
+        setEmps(load("alfa_emps", DEFAULT_EMPS));
+        setProjs(load("alfa_projs", DEFAULT_PROJS));
+        setEntries(load("alfa_entries", []));
+        setClients(load("alfa_clients", []));
+        setVendors(load("alfa_vendors", []));
+        setCogs(load("alfa_cogs", {}));
+      }
+      setDbReady(true);
+      setDbLoading(false);
+    })();
   },[]);
-  const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  const day = days[now.getDay()];
-  const date = now.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
-  const time = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
-  return h("div",{style:{
-    position:"sticky",top:0,zIndex:50,
-    background:T.text,
-    padding:"10px 20px",
-    display:"flex",alignItems:"center",justifyContent:"space-between",
-    boxShadow:"0 2px 12px rgba(0,0,0,0.2)"
-  }},
-    h("div",null,
-      h("div",{style:{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:1}},"Today is"),
-      h("div",{style:{fontSize:16,fontWeight:800,color:"#FFF"}},day+", "+date)
+  const [mode,setMode]       = useState("worker");
+  const [currentUser,setCurrentUser] = useState(null);
+  const [clientOrder,setClientOrder]   = useState([]);
+  const [receiptSheet,setReceiptSheet] = useState(null);
+  const [toast,setToast]               = useState(null); // {msg, color, empColor}
+  const [selectedEmp,setSelectedEmp] = useState(null); // "worker"|"pin"|"admin"
+  const [adminTab,setAdminTab] = useState("projects");
+  const [expandProj,setExpandProj] = useState(null);
+  const [expandCrew,setExpandCrew] = useState(null);
+  const [empDrafts,setEmpDrafts] = useState({}); // {id: {name,role,rate}}
+  const [empSheet,setEmpSheet]   = useState(null);
+  const [editingProj,setEditingProj] = useState(null); // proj id being edited inline
+  const [projFilter,setProjFilter] = useState("All");
+  const [logRange,setLogRange] = useState("week");
+  const [weekOffset,setWeekOffset] = useState(0);
+  const [logProjFilter,setLogProjFilter] = useState("all"); // "all" or proj.id
+  const [summaryOpen,setSummaryOpen] = useState(true);
+  const [importSheet,setImportSheet] = useState(false);
+  const [showArchived,setShowArchived] = useState(false);
+  const [importRows,setImportRows] = useState([]);
+  const [editingEmp,setEditingEmp]   = useState(null); // emp id being edited inline
+  const [projSheet,setProjSheet] = useState(null);
+  const [logSheet,setLogSheet]   = useState(null);
+  const [cogsSheet,setCogsSheet] = useState(null);
+  const [cogs,setCogs]           = useState({});
+  const [vendors,setVendors]     = useState([]);
+  const [clients,setClients]     = useState([]);
+  const [quickClientName,setQuickClientName] = useState("");
+  const [showQuickClient,setShowQuickClient] = useState(false);
+  const [confirmEntry,setConfirmEntry] = useState(null);
+  const [confirmProj,setConfirmProj]   = useState(null);
+  const [projDetails,setProjDetails]   = useState(()=>load("alfa_projdetails",{}));
+  const [projPayments,setProjPayments] = useState(()=>load("alfa_projpayments",{})); // {projId:[{id,amount,type,date,note}]}
+  const [projNotes,setProjNotes]       = useState(()=>load("alfa_projnotes",{}));
+  const [detailsTab,setDetailsTab]     = useState({}); // {projId: "info"|"files"}
+  const [confirmEmp,setConfirmEmp]     = useState(null);
+  const [confirmVendor,setConfirmVendor] = useState(null);
+  const [expandVendor,setExpandVendor]   = useState(null);
+  const [editSaleProj,setEditSaleProj]   = useState(null); // projId being edited inline
+  const [vendorRange,setVendorRange] = useState("all"); // "all"|"month"|"year"|"custom"
+  const [vendorOffset,setVendorOffset] = useState(0);
+  const [vendorCustomStart,setVendorCustomStart] = useState("");
+  const [vendorCustomEnd,setVendorCustomEnd]   = useState("");
+  const [payrollRange,setPayrollRange]         = useState("month");
+  const [payrollOffset,setPayrollOffset]       = useState(0);
+  const [payrollCustomStart,setPayrollCustomStart] = useState("");
+  const [payrollCustomEnd,setPayrollCustomEnd]     = useState("");
+  const [logCustomStart,setLogCustomStart]     = useState("");
+  const [logCustomEnd,setLogCustomEnd]         = useState("");
+  const [ef,setEf] = useState({name:"",role:ROLES[0],rate:""});
+  const [pf,setPf] = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[]});
+  const [lf,setLf] = useState({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});
+
+  // Persist — use ref to skip first render so we don't overwrite Supabase on load
+  const isFirstRender = React.useRef({emps:true, projs:true, entries:true, clients:true, vendors:true, cogs:true, projNotes:true, clientOrder:true, projPayments:true});
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
+    if(isFirstRender.current.emps){ isFirstRender.current.emps=false; return; }
+    dbSave("employees", emps);
+  },[emps]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}
+    if(isFirstRender.current.projs){ isFirstRender.current.projs=false; return; }
+    dbSave("projects", projs);
+  },[projs]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}
+    if(isFirstRender.current.entries){ isFirstRender.current.entries=false; return; }
+    dbSave("entries", entries);
+  },[entries]);
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_cogs",JSON.stringify(cogs));}catch{}
+    if(isFirstRender.current.cogs){isFirstRender.current.cogs=false;return;}
+    const cogsFlat=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
+    dbSave("cogs", cogsFlat);
+  },[cogs]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_vendors",JSON.stringify(vendors));}catch{}
+    if(isFirstRender.current.vendors){isFirstRender.current.vendors=false;return;}
+    dbSave("vendors", vendors);
+  },[vendors]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_clients",JSON.stringify(clients));}catch{}
+    if(isFirstRender.current.clients){isFirstRender.current.clients=false;return;}
+    dbSave("clients", clients);
+  },[clients]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{}
+    if(isFirstRender.current.projNotes){isFirstRender.current.projNotes=false;return;}
+    const notesFlat=Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
+    dbSave("projnotes", notesFlat);
+  },[projNotes]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{}
+    if(isFirstRender.current.clientOrder){isFirstRender.current.clientOrder=false;return;}
+    dbSave("clientorder", clientOrder.map(name=>({id:name,name})));
+  },[clientOrder]);
+
+  // Auto-create client profiles for any project client name not yet in clients list
+  // Uses deterministic ID from name so no duplicates on reload
+  useEffect(()=>{
+    const existingNames = new Set(clients.map(c=>c.name.toLowerCase().trim()));
+    const missingNames = [...new Set(projs.map(p=>p.client).filter(n=>n&&n.trim()&&!existingNames.has(n.toLowerCase().trim())))];
+    if(missingNames.length>0){
+      // Generate stable ID by hashing the name
+      function nameId(str){ let h=5381; for(let i=0;i<str.length;i++)h=((h<<5)+h)+str.charCodeAt(i); return Math.abs(h); }
+      setClients(p=>[...p,...missingNames.map(n=>({id:nameId(n.toLowerCase().trim()),name:n.trim(),phone:"",email:"",address:"",notes:""}))]);
+    }
+  },[projs]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projpayments",JSON.stringify(projPayments));}catch{}
+    if(isFirstRender.current.projPayments){isFirstRender.current.projPayments=false;return;}
+    const flat=Object.entries(projPayments).flatMap(([projId,pmts])=>pmts.map(p=>({...p,projId:+projId})));
+    dbSave("projpayments", flat);
+  },[projPayments]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_clientorder",JSON.stringify(clientOrder));}catch{} },[clientOrder]);
+  useEffect(()=>{ try{localStorage.setItem("alfa_projnotes",JSON.stringify(projNotes));}catch{} },[projNotes]);
+
+  const done    = entries.filter(e=>e.end);
+  const active  = entries.filter(e=>!e.end);
+  const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);
+  const activeProjs = projs.filter(p=>p.status!=="Completed");
+  const activeEmps = emps.filter(e=>!e.archived);
+  const archivedEmps = emps.filter(e=>e.archived);
+
+  function activeFor(eid,pid){return entries.find(e=>e.empId===eid&&e.projId===pid&&!e.end);}
+  function projMs(pid){return done.filter(e=>e.projId===pid).reduce((s,e)=>s+(e.end-e.start),0);}
+  function empMs(eid){return done.filter(e=>e.empId===eid).reduce((s,e)=>s+(e.end-e.start),0);}
+
+  function fmtCost(dollars){ return "$"+dollars.toFixed(2); }
+  function projCogsTotals(projId){
+    const items=(cogs[projId]||[]);
+    const total=items.reduce((s,i)=>s+(+i.amount||0),0);
+    return {total,items};
+  }
+  function entryCost(e){ const emp=emps.find(x=>x.id===e.empId); return emp&&emp.rate?(e.end-e.start)/3600000*emp.rate:0; }
+  function clockIn(eid,pid){
+    if(activeFor(eid,pid))return;
+    const now=Date.now();
+    setEntries(p=>[...p.map(e=>e.empId===eid&&!e.end?{...e,end:now}:e),{id:now+1,empId:eid,projId:pid,start:now,end:null}]);
+    const emp=emps.find(e=>e.id===eid);
+    const proj=projs.find(p=>p.id===pid);
+    if(emp&&proj){
+      setToast({msg:"✓ "+emp.name+" clocked in"+" · "+proj.name,color:emp.color});
+      setTimeout(()=>setToast(null),2800);
+    }
+  }
+  function clockOut(id){
+    const entry=entries.find(e=>e.id===id);
+    const emp=entry?emps.find(e=>e.id===entry.empId):null;
+    setEntries(p=>p.map(e=>e.id===id?{...e,end:Date.now()}:e));
+    if(emp){
+      setToast({msg:"✓ "+emp.name+" clocked out",color:emp.color});
+      setTimeout(()=>setToast(null),2800);
+    }
+  }
+  async function manualSync() {
+    setSyncing(true);
+    try {
+      // Flatten cogs object to array with projId for storage
+      const cogsFlat = Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,projId:+projId})));
+      // Flatten projNotes object
+      const notesFlat = Object.entries(projNotes).flatMap(([projId,notes])=>notes.map(n=>({...n,projId:+projId})));
+      // ClientOrder as array of objects
+      const coArr = clientOrder.map(name=>({id:name,name}));
+      await Promise.all([
+        dbSave("employees",   emps),
+        dbSave("projects",    projs),
+        dbSave("entries",     entries),
+        dbSave("clients",     clients),
+        dbSave("vendors",     vendors),
+        dbSave("cogs",        cogsFlat),
+        dbSave("projnotes",   notesFlat),
+        dbSave("clientorder", coArr),
+        dbDelete("employees",   emps.map(x=>String(x.id))),
+        dbDelete("projects",    projs.map(x=>String(x.id))),
+        dbDelete("entries",     entries.map(x=>String(x.id))),
+        dbDelete("clients",     clients.map(x=>String(x.id))),
+        dbDelete("vendors",     vendors.map(x=>String(x.id))),
+        dbDelete("cogs",        cogsFlat.map(x=>String(x.id))),
+        dbDelete("projnotes",   notesFlat.map(x=>String(x.id))),
+      ]);
+    } catch(e) { console.error("manualSync error", e); }
+    setSyncing(false);
+  }
+  function deleteEntry(id){setEntries(p=>p.filter(e=>e.id!==id));setConfirmEntry(null);}
+
+  function saveEmp(){
+    if(!ef.name.trim())return;
+    if(empSheet==="add") setEmps(p=>[...p,{id:Date.now(),name:ef.name,role:ef.role,color:COLORS[p.length%COLORS.length],rate:+ef.rate||0}]);
+    else setEmps(p=>p.map(e=>e.id===empSheet.id?{...e,...ef,rate:+ef.rate||0}:e));
+    setEmpSheet(null);
+  }
+  function delEmp(id){
+    setEmps(p=>p.filter(e=>e.id!==id));
+    setEntries(p=>p.filter(e=>e.empId!==id));
+    setProjs(p=>p.map(x=>({...x,assignedTo:x.assignedTo.filter(i=>i!==id)})));
+  }
+  function archiveEmp(id){ setEmps(p=>p.map(e=>e.id===id?{...e,archived:true}:e)); }
+  function unarchiveEmp(id){ setEmps(p=>p.map(e=>e.id===id?{...e,archived:false}:e)); }
+  function saveProj(){
+    if(!pf.name.trim())return;
+    if(projSheet==="add") setProjs(p=>[...p,{id:Date.now(),...pf}]);
+    else setProjs(p=>p.map(x=>x.id===projSheet.id?{...x,...pf}:x));
+    setProjSheet(null);
+  }
+  function delProj(id){setProjs(p=>p.filter(x=>x.id!==id));setEntries(p=>p.filter(e=>e.projId!==id));}
+  function togAssign(id){setPf(f=>({...f,assignedTo:f.assignedTo.includes(id)?f.assignedTo.filter(i=>i!==id):[...f.assignedTo,id]}));}
+  function saveLog(){
+    const{empId,projId,hours,date}=lf;
+    if(!empId||!projId||!hours||isNaN(+hours)||+hours<=0)return;
+    const ms=+hours*3600000,base=new Date(date+"T07:00:00").getTime();
+    setEntries(p=>[...p,{id:Date.now(),empId:+empId,projId:+projId,start:base,end:base+ms}]);
+    setLogSheet(null);
+  }
+
+  const card={background:T.surf,border:"1px solid "+T.border,borderRadius:12,overflow:"hidden"};
+  const secLabel={fontSize:11,fontWeight:700,color:T.dim,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:10};
+
+  //  -- PIN screen -----------------------------------------
+  if(dbLoading) return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F8F7F4",gap:12}},
+    h("div",{style:{fontSize:28,marginBottom:4}},"⟳"),
+    h("div",{style:{fontSize:14,fontWeight:600,color:"#78716C"}}),"Syncing data…",
+    h("div",{style:{fontSize:12,color:"#A8A29E"}},"Connecting to database")
+  );
+
+  if(mode==="pin") return h(PinScreen,{
+    onSuccess:(user)=>{setCurrentUser(user);setAdminTab((ROLE_TABS[user.role]||["projects"])[0]);setMode("admin");},
+    onCancel:()=>setMode("worker")
+  });
+
+  return h("div",{style:{minHeight:"100vh",background:T.bg,color:T.text}},
+
+    // HEADER
+    h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+        h("div",{style:{width:28,height:28,borderRadius:6,background:T.text,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+          h("span",{style:{color:"#FFF",fontSize:14,fontWeight:900,letterSpacing:"-1px"}},"Α")
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:15,fontWeight:800,color:T.text,letterSpacing:"-0.4px",lineHeight:1}},"Alfa Studio"),
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:1}},
+            h("div",{style:{fontSize:9,color:dbReady?T.green:T.amber,letterSpacing:"0.12em",textTransform:"uppercase"}},dbReady?"✦ LIVE":"⟳ CONNECTING…"),
+            currentUser&&h("div",{style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",letterSpacing:"0.04em"}},currentUser.name),
+            mode==="admin"&&h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync")
+          )
+        )
+      ),
+      h("div",{style:{display:"flex",background:T.faint,borderRadius:10,padding:3,gap:2}},
+        h("button",{onClick:()=>setMode("worker"),style:{padding:"5px 14px",background:mode==="worker"?T.surf:"transparent",color:mode==="worker"?T.text:T.sub,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,boxShadow:mode==="worker"?"0 1px 4px rgba(0,0,0,0.08)":"none"}},"Worker"),
+        h("button",{onClick:()=>mode==="admin"?setMode("worker"):setMode("pin"),style:{padding:"5px 14px",background:mode==="admin"?T.surf:"transparent",color:mode==="admin"?T.text:T.sub,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,boxShadow:mode==="admin"?"0 1px 4px rgba(0,0,0,0.08)":"none"}},"Admin")
+      )
     ),
-    h("div",{style:{fontSize:22,fontWeight:700,color:"#FFF",fontVariantNumeric:"tabular-nums",letterSpacing:"0.02em"}},time)
+
+    // ═══ WORKER VIEW ═══
+    mode==="worker"&&h("div",{style:{padding:"16px 16px 40px",maxWidth:1200,margin:"0 auto"}},
+
+      // Active banner
+      active.length>0&&h("div",{style:{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:12,padding:"12px 16px",marginBottom:16}},
+        h("div",{style:{fontSize:11,fontWeight:700,color:T.amber,letterSpacing:"0.06em",marginBottom:8}},"● CLOCKED IN"),
+        active.map(e=>{
+          const emp=emps.find(x=>x.id===e.empId),proj=projs.find(x=>x.id===e.projId);
+          if(!emp||!proj)return null;
+          return h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
+            h("span",{style:{fontWeight:600,fontSize:13,color:emp.color,minWidth:60}},emp.name),
+            h("span",{style:{flex:1,fontSize:12,color:T.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},proj.name),
+            h("span",{style:{fontSize:11,color:T.dim}},"since "+fmtTime(e.start)),
+            h("span",{style:{fontSize:12,fontWeight:700,color:T.amber,minWidth:36,textAlign:"right"}},h(LiveTimer,{start:e.start}))
+          );
+        })
+      ),
+
+      // Employee cards — 2 columns, always visible
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}},
+
+        (()=>{
+          const {itemProps:empItemProps} = makeDragSort(activeEmps, next=>setEmps(p=>{ const archived=p.filter(e=>e.archived); return [...next,...archived]; }));
+          return activeEmps.map((emp,empIdx)=>{
+          const isClockedIn=active.some(e=>e.empId===emp.id);
+          return h("div",{key:emp.id,...empItemProps(empIdx),style:{background:T.surf,border:"2px solid "+emp.color,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 12px "+emp.color+"22",cursor:"grab"}},
+            // Name header
+            h("div",{style:{padding:"10px 12px",background:emp.color+"18",display:"flex",alignItems:"center",gap:8}},
+              h("div",{style:{width:28,height:28,borderRadius:"50%",background:emp.color+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+                h("span",{style:{fontSize:13,fontWeight:800,color:emp.color}},emp.name[0])
+              ),
+              h("div",{style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:13,fontWeight:800,color:T.text,letterSpacing:"-0.2px"}},emp.name),
+                h("div",{style:{fontSize:10,color:T.sub}},emp.role)
+              ),
+              isClockedIn&&h("div",{style:{width:7,height:7,borderRadius:"50%",background:T.green,flexShrink:0}})
+            ),
+            h("div",{style:{height:1,background:emp.color+"22"}}),
+            // Projects
+            h("div",{style:{padding:"8px 10px",display:"flex",flexDirection:"column",gap:5}},
+              activeProjs.length===0&&h("span",{style:{fontSize:11,color:T.dim,padding:"4px 0"}},"No active projects."),
+              activeProjs.map(proj=>{
+                const act=activeFor(emp.id,proj.id);
+                return h("div",{key:proj.id,style:{background:act?emp.color+"15":T.faint,border:"1.5px solid "+(act?emp.color+"66":T.border),borderRadius:10,padding:"8px 10px"}},
+                  h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                    h("div",{style:{flex:1,minWidth:0}},
+                      h("div",{style:{fontSize:12,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},proj.name),
+                      act&&h("div",{style:{fontSize:10,color:emp.color,fontWeight:500,marginTop:2}},
+                        fmtTime(act.start)+" · ",h("strong",null,h(LiveTimer,{start:act.start}))
+                      )
+                    ),
+                    h("div",{style:{display:"flex",gap:4,flexShrink:0}},
+                      act
+                        ? h("button",{onClick:()=>clockOut(act.id),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,border:"1px solid "+emp.color+"88",background:emp.color+"33",color:emp.color,padding:"5px 8px"}},"Out")
+                        : h("button",{onClick:()=>clockIn(emp.id,proj.id),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,border:"1px solid "+emp.color+"44",background:emp.color+"12",color:emp.color,padding:"5px 8px"}},"In"),
+                      h("button",{onClick:()=>setReceiptSheet({empId:emp.id,projId:proj.id,projName:proj.name,empName:emp.name}),style:{flexShrink:0,borderRadius:7,cursor:"pointer",fontSize:13,border:"1px solid "+T.border,background:T.faint,padding:"4px 7px",color:T.sub}},"🧾")
+                    )
+                  )
+                );
+              })
+            )
+          );
+        });})()
+      ),
+
+      emps.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew set up yet.")
+    ),
+
+    // ═══ ADMIN VIEW ═══
+    mode==="admin"&&h("div",null,
+      // Admin tabs
+      h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,display:"flex",padding:"0 16px",position:"sticky",top:0,zIndex:50,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}},  
+        [["projects","Projects"],["crew","Crew"],["clients","Clients"],["vendors","Vendors"],["payroll","Payroll"]].filter(([t])=>!currentUser||((ROLE_TABS[currentUser.role]||[]).includes(t))).map(([t,l])=>
+          h("button",{key:t,onClick:()=>setAdminTab(t),style:{background:"none",border:"none",borderBottom:adminTab===t?"2px solid "+T.text:"2px solid transparent",color:adminTab===t?T.text:T.sub,padding:"12px 16px",cursor:"pointer",fontSize:13,fontWeight:adminTab===t?700:500,marginBottom:-1}},l)
+        )
+      ),
+      // Stats
+      h("div",{style:{background:T.surf,borderBottom:"1px solid "+T.border,padding:"10px 20px",display:"flex",gap:24}},
+        [{l:"On Clock",v:active.length,c:T.green},{l:"Active Jobs",v:activeProjs.length,c:T.amber},{l:"Total Hours",v:fmtHrs(totalMs),c:T.blue}].map(s=>
+          h("div",{key:s.l,style:{display:"flex",alignItems:"baseline",gap:6}},
+            h("span",{style:{fontSize:18,fontWeight:700,color:s.c}},s.v),
+            h("span",{style:{fontSize:11,color:T.dim}},s.l)
+          )
+        )
+      ),
+
+      h("div",{style:{padding:"16px 16px 80px",maxWidth:860,margin:"0 auto"}},
+
+        // PROJECTS TAB
+        adminTab==="projects"&&h("div",null,
+
+          // ── Status Dashboard ──
+          (()=>{
+            const total = projs.length;
+            const byStatus = {};
+            STATUSES.forEach(s=>{ byStatus[s]=projs.filter(p=>p.status===s).length; });
+            const totalRev = projs.reduce((s,p)=>s+(+p.salePrice||0),0);
+            const totalCost = projs.reduce((s,p)=>{
+              const labor=done.filter(e=>e.projId===p.id).reduce((ss,e)=>ss+entryCost(e),0);
+              const mats=(cogs[p.id]||[]).reduce((ss,i)=>ss+(+i.amount||0),0);
+              return s+labor+mats;
+            },0);
+            const totalProfit = totalRev>0?totalRev-totalCost:null;
+            if(total===0) return null;
+            return h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:16}},
+              h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"10px 12px",textAlign:"center"}},
+                h("div",{style:{fontSize:18,fontWeight:800,color:T.amber}},byStatus["In Progress"]||0),
+                h("div",{style:{fontSize:10,color:T.sub,marginTop:2,textTransform:"uppercase",letterSpacing:"0.04em"}},"In Progress")
+              ),
+              h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"10px 12px",textAlign:"center"}},
+                h("div",{style:{fontSize:18,fontWeight:800,color:"#94A3B8"}},byStatus["Not Started"]||0),
+                h("div",{style:{fontSize:10,color:T.sub,marginTop:2,textTransform:"uppercase",letterSpacing:"0.04em"}},"Not Started")
+              ),
+              h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"10px 12px",textAlign:"center"}},
+                h("div",{style:{fontSize:18,fontWeight:800,color:T.green}},byStatus["Completed"]||0),
+                h("div",{style:{fontSize:10,color:T.sub,marginTop:2,textTransform:"uppercase",letterSpacing:"0.04em"}},"Completed")
+              ),
+              totalRev>0&&h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"10px 12px",textAlign:"center"}},
+                h("div",{style:{fontSize:14,fontWeight:800,color:T.blue}},fmtCost(totalRev)),
+                h("div",{style:{fontSize:10,color:T.sub,marginTop:2,textTransform:"uppercase",letterSpacing:"0.04em"}},"Pipeline")
+              ),
+              totalProfit!==null&&h("div",{style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,padding:"10px 12px",textAlign:"center"}},
+                h("div",{style:{fontSize:14,fontWeight:800,color:totalProfit>=0?T.green:T.red}},(totalProfit>=0?"+":"")+fmtCost(totalProfit)),
+                h("div",{style:{fontSize:10,color:T.sub,marginTop:2,textTransform:"uppercase",letterSpacing:"0.04em"}},"Profit")
+              )
+            );
+          })(),
+
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+            h("span",{style:{fontSize:13,color:T.sub}},projs.length+" project"+(projs.length!==1?"s":"")),
+            h("div",{style:{display:"flex",gap:8}},
+              h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:"",projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+              h("button",{onClick:()=>{setImportRows([{id:Date.now(),empId:"",projId:"",date:new Date().toISOString().slice(0,10),hours:""}]);setImportSheet(true);},style:{background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"44",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}},"↑ Batch Import"),
+              h(Btn,{label:"+ Project",size:"sm",onClick:()=>{setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[],salePrice:"",notes:""});setEditingProj("new");}})
+            )
+          ),
+          // Status filter pills
+          h("div",{style:{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}},
+            ["All",...STATUSES].map(s=>{
+              const count=s==="All"?projs.length:projs.filter(p=>p.status===s).length;
+              const active=projFilter===s;
+              const color=s==="All"?T.text:SC[s]||T.text;
+              return h("button",{key:s,onClick:()=>setProjFilter(s),style:{
+                background:active?(s==="All"?T.text:color+"18"):T.faint,
+                color:active?(s==="All"?"#FFF":color):T.sub,
+                border:"1px solid "+(active?(s==="All"?T.text:color+"66"):T.border),
+                borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:active?700:400,
+                cursor:"pointer",whiteSpace:"nowrap"
+              }},s+(count>0?" ("+count+")":""));
+            })
+          ),
+
+          // Inline new project form
+          editingProj==="new"&&h("div",{style:{...card,marginBottom:12,padding:16,background:"#F0FDF4",border:"1.5px solid #BBF7D0"}},
+            h("div",{style:{fontSize:12,fontWeight:700,color:T.green,marginBottom:12}},"NEW PROJECT"),
+            h(Field,{label:"Project Name",value:pf.name,onChange:v=>setPf({...pf,name:v})}),
+            h("div",{style:{marginBottom:14}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Client"),
+              h("select",{value:pf.client,onChange:e=>{if(e.target.value==="__new__"){setShowQuickClient(true);}else{setPf({...pf,client:e.target.value});}},style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+                h("option",{value:""},"Select client…"),
+                clients.map(c=>h("option",{key:c.id,value:c.name},c.name)),
+                h("option",{value:"__new__"},"+ Add new client…")
+              ),
+              showQuickClient&&h("div",{style:{display:"flex",gap:6,marginTop:6}},
+                h("input",{type:"text",autoFocus:true,placeholder:"Client name",value:quickClientName,onChange:e=>setQuickClientName(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&quickClientName.trim()){const n=quickClientName.trim();setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);}},style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}}),
+                h("button",{onClick:()=>{const n=quickClientName.trim();if(!n)return;setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
+                h("button",{onClick:()=>{setShowQuickClient(false);setQuickClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
+              )
+            ),
+            h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
+            h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
+            h("div",{style:{marginBottom:14}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Sale Price ($)"),
+              h("div",{style:{display:"flex",alignItems:"center",gap:6,background:T.faint,border:"1px solid "+T.border,borderRadius:8,padding:"2px 10px"}},
+                h("span",{style:{fontSize:13,color:T.sub}},"$"),
+                h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:pf.salePrice||"",onChange:e=>setPf({...pf,salePrice:e.target.value}),style:{flex:1,background:"transparent",border:"none",color:T.text,padding:"8px 0",fontSize:14,fontWeight:600,outline:"none"}})
+              )
+            ),
+            h("div",{style:{marginBottom:14}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Notes"),
+              h("textarea",{rows:2,placeholder:"e.g. Waiting on hardware, client wants oak finish…",value:pf.notes||"",onChange:e=>setPf({...pf,notes:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}})
+            ),
+            h("div",{style:{marginBottom:14}},
+              h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:8}},"Assign Crew"),
+              h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
+                emps.map(e=>{ const sel=pf.assignedTo.includes(e.id);
+                  return h("button",{key:e.id,onClick:()=>togAssign(e.id),style:{background:sel?e.color+"15":T.faint,border:"1px solid "+(sel?e.color:T.border),color:sel?e.color:T.sub,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,fontWeight:sel?700:400}},e.name);
+                })
+              )
+            ),
+            h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+              h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setEditingProj(null)}),
+              h(Btn,{label:"✓ Add Project",onClick:()=>{if(!pf.name.trim())return;setProjs(p=>[...p,{id:Date.now(),...pf}]);setEditingProj(null);}})
+            )
+          ),
+
+          ...(()=>{
+            const filtered = projFilter==="All"?projs:projs.filter(p=>p.status===projFilter);
+            if(filtered.length===0) return [h("div",{key:"empty",style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},projFilter==="All"?"No projects yet.":"No "+projFilter+" projects.")];
+            // Group by client
+            const groups={};
+            filtered.forEach(p=>{ const k=p.client||"No Client"; if(!groups[k])groups[k]=[]; groups[k].push(p); });
+            // Build sorted using clientOrder state, adding new clients to end
+            const allGroupNames = Object.keys(groups);
+            const orderedNames = [
+              ...clientOrder.filter(n=>allGroupNames.includes(n)),
+              ...allGroupNames.filter(n=>!clientOrder.includes(n)).sort((a,b)=>a.localeCompare(b))
+            ];
+            const sorted = orderedNames.map(name=>[name,groups[name]]);
+            const CLIENT_COLORS=["#E63946","#2196F3","#2ECC40","#FF6D00","#9C27B0","#00BCD4","#F06292","#1B5E20","#795548","#E91E63"];
+            const clientColorMap={};
+            // Assign colors so no two adjacent clients share the same color (graph coloring)
+            sorted.forEach(([name],i)=>{
+              if(name==="No Client"){ clientColorMap[name]=T.dim; return; }
+              let idx=i%CLIENT_COLORS.length;
+              const prevColor=i>0?clientColorMap[sorted[i-1][0]]:null;
+              while(CLIENT_COLORS[idx]===prevColor){idx=(idx+1)%CLIENT_COLORS.length;}
+              clientColorMap[name]=CLIENT_COLORS[idx];
+            });
+            // Drag groups — saves order to state
+            const {itemProps:grpItemProps} = makeDragSort(orderedNames, newOrder=>{
+              setClientOrder(newOrder);
+            });
+
+            return sorted.flatMap(([clientName,clientProjs],grpIdx)=>{
+              const cc = clientName==="No Client"?T.dim:clientColorMap[clientName];
+              return [
+              h("div",{key:"grp-"+clientName,
+                style:{borderRadius:12,marginBottom:14,overflow:"hidden",border:"1.5px solid "+cc+"44",boxShadow:"0 2px 10px "+cc+"18"}},
+                // Client header strip — drag handle
+                h("div",{...grpItemProps(grpIdx),style:{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:cc+"15",borderBottom:"1px solid "+cc+"25",cursor:"grab",userSelect:"none"}},
+                  h("div",{style:{width:7,height:7,borderRadius:"50%",background:cc,flexShrink:0}}),
+                  h("span",{style:{fontSize:11,fontWeight:700,color:cc,flex:1}},(clientName==="No Client"?"No Client":clientName)),
+                  h("span",{style:{fontSize:10,color:cc,opacity:0.6}},clientProjs.length+" project"+(clientProjs.length!==1?"s":"")),
+                  h("span",{style:{fontSize:11,color:cc,opacity:0.35,marginLeft:4}},"⠿")
+                ),
+                // Projects nested inside
+                h("div",{style:{padding:"8px 8px 4px",background:T.bg}},
+                  ...clientProjs.map(proj=>{
+            const crew=emps.filter(e=>proj.assignedTo.includes(e.id));
+            const hrs=projMs(proj.id);
+            const isLive=active.some(e=>e.projId===proj.id);
+            const isExp=expandProj===proj.id;
+            const isEditing=editingProj===proj.id;
+            const projDone=done.filter(e=>e.projId===proj.id).sort((a,b)=>b.start-a.start);
+                return h("div",{key:proj.id,style:{...card,marginBottom:6,borderLeft:"3px solid "+(SC[proj.status]||T.border),boxShadow:"none",border:"1px solid "+T.border}},
+
+              // Inline edit form
+              isEditing
+                ? h("div",{style:{padding:16}},
+                    h("div",{style:{fontSize:12,fontWeight:700,color:T.amber,marginBottom:12}},"EDIT PROJECT"),
+                    h(Field,{label:"Project Name",value:pf.name,onChange:v=>setPf({...pf,name:v})}),
+                    h("div",{style:{marginBottom:14}},
+                      h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Client"),
+                      h("select",{value:pf.client,onChange:e=>{if(e.target.value==="__new__"){setShowQuickClient(true);}else{setPf({...pf,client:e.target.value});}},style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+                        h("option",{value:""},"Select client…"),
+                        clients.map(c=>h("option",{key:c.id,value:c.name},c.name)),
+                        h("option",{value:"__new__"},"+ Add new client…")
+                      ),
+                      showQuickClient&&h("div",{style:{display:"flex",gap:6,marginTop:6}},
+                        h("input",{type:"text",autoFocus:true,placeholder:"Client name",value:quickClientName,onChange:e=>setQuickClientName(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&quickClientName.trim()){const n=quickClientName.trim();setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);}},style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"8px 10px",fontSize:13,outline:"none"}}),
+                        h("button",{onClick:()=>{const n=quickClientName.trim();if(!n)return;setClients(p=>[...p,{id:Date.now(),name:n,phone:"",email:"",address:"",notes:""}]);setPf({...pf,client:n});setQuickClientName("");setShowQuickClient(false);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:6,padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}},"Add"),
+                        h("button",{onClick:()=>{setShowQuickClient(false);setQuickClientName("");},style:{background:"none",border:"1px solid "+T.border,borderRadius:6,padding:"0 10px",cursor:"pointer",fontSize:12,color:T.sub}},"✕")
+                      )
+                    ),
+                    h(Field,{label:"Status",value:pf.status,onChange:v=>setPf({...pf,status:v}),options:STATUSES}),
+                    h(Field,{label:"Deadline",value:pf.deadline,onChange:v=>setPf({...pf,deadline:v}),type:"date"}),
+                    h("div",{style:{marginBottom:14}},
+                      h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Sale Price ($)"),
+                      h("div",{style:{display:"flex",alignItems:"center",gap:6,background:T.faint,border:"1px solid "+T.border,borderRadius:8,padding:"2px 10px"}},
+                        h("span",{style:{fontSize:13,color:T.sub}},"$"),
+                        h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:pf.salePrice||"",onChange:e=>setPf({...pf,salePrice:e.target.value}),style:{flex:1,background:"transparent",border:"none",color:T.text,padding:"8px 0",fontSize:14,fontWeight:600,outline:"none"}})
+                      )
+                    ),
+                    h("div",{style:{marginBottom:14}},
+                      h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Notes"),
+                      h("textarea",{rows:2,placeholder:"e.g. Waiting on hardware, client wants oak finish…",value:pf.notes||"",onChange:e=>setPf({...pf,notes:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}})
+                    ),
+                    h("div",{style:{marginBottom:14}},
+                      h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:8}},"Assign Crew"),
+                      h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
+                        emps.map(e=>{ const sel=pf.assignedTo.includes(e.id);
+                          return h("button",{key:e.id,onClick:()=>togAssign(e.id),style:{background:sel?e.color+"15":T.faint,border:"1px solid "+(sel?e.color:T.border),color:sel?e.color:T.sub,borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13,fontWeight:sel?700:400}},e.name);
+                        })
+                      )
+                    ),
+                    h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+                      h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setEditingProj(null)}),
+                      h(Btn,{label:"✓ Save",onClick:()=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,...pf}:x));setEditingProj(null);}})
+                    )
+                  )
+
+                // Normal view
+                : h("div",null,
+                    h("div",{style:{padding:"12px 14px",cursor:"pointer"},onClick:()=>setExpandProj(isExp?null:proj.id)},
+                      // Top row: name + live badge + actions
+                      h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:6}},
+                        h("div",{style:{flex:1,minWidth:0}},
+                          h("span",{style:{fontSize:14,fontWeight:700,color:T.text}},proj.name),
+                          isLive&&h("span",{style:{marginLeft:6,fontSize:10,fontWeight:700,color:T.green,background:T.green+"15",borderRadius:10,padding:"1px 6px"}},"● Live")
+                        ),
+                        h("button",{onClick:e=>{e.stopPropagation();setCogsSheet(proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"6px 12px",background:T.blue+"15",color:T.blue,border:"1px solid "+T.blue+"33"}},"💰"),
+                        h("button",{onClick:e=>{e.stopPropagation();setExpandProj(isExp?null:proj.id);},style:{flexShrink:0,borderRadius:8,cursor:"pointer",fontSize:13,padding:"6px 10px",background:T.faint,color:T.sub,border:"1px solid "+T.border}},isExp?"▲":"▼")
+                      ),
+                      // Status + deadline + crew — compact single row
+                      h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}},
+                        h("select",{value:proj.status,onClick:e=>e.stopPropagation(),onChange:e=>setProjs(p=>p.map(x=>x.id===proj.id?{...x,status:e.target.value}:x)),style:{background:SC[proj.status]+"18",color:SC[proj.status],border:"none",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer",outline:"none",appearance:"none"}},
+                          STATUSES.map(s=>h("option",{key:s,value:s},s))
+                        ),
+                        proj.deadline&&h("span",{style:{fontSize:10,color:T.dim}},"Due "+proj.deadline),
+                        crew.map(e=>h("span",{key:e.id,style:{fontSize:10,color:e.color,fontWeight:700}},e.name))
+                      ),
+                      // Numbers row — Hours · Labor · Materials
+                      (()=>{
+                        const ct=projCogsTotals(proj.id);
+                        const laborCost=done.filter(e=>e.projId===proj.id).reduce((s,e)=>s+entryCost(e),0);
+                        const salePrice=+proj.salePrice||0;
+                        const totalCost=laborCost+ct.total;
+                        const profit=salePrice>0?salePrice-totalCost:null;
+                        if(!hrs&&!laborCost&&!ct.total&&!salePrice) return null;
+                        const stat=(label,val,color,onClick)=>h("div",{onClick,
+                          style:{flex:1,background:val?color+"10":T.faint,borderRadius:8,padding:"7px 10px",cursor:onClick?"pointer":"default",minWidth:0}},
+                          h("div",{style:{fontSize:10,fontWeight:600,color:val?color:T.dim,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},label),
+                          val
+                            ? h("div",{style:{fontSize:13,fontWeight:700,color:color}},val)
+                            : h("div",{style:{fontSize:13,color:T.border,letterSpacing:"0.15em"}},"– –")
+                        );
+                        const empty = val => h("span",{style:{fontSize:13,fontWeight:400,color:T.border,letterSpacing:"0.1em"}},"– –");
+                        return h("div",{style:{display:"flex",gap:6,marginTop:8,alignItems:"stretch"}},
+                          // Left group — always show
+                          stat("Hours",    hrs>0?fmtHrs(hrs):null,          T.amber),
+                          stat("Labor",    laborCost>0?fmtCost(laborCost):null, T.green),
+                          stat("Materials",ct.total>0?fmtCost(ct.total):null,  T.blue, e=>{e.stopPropagation();setCogsSheet(proj.id);}),
+                          // Divider
+                          h("div",{style:{width:1,background:T.border,borderRadius:2,margin:"0 2px",flexShrink:0}}),
+                          // Right group — always show
+                          // Sale tile — clickable inline edit
+                          editSaleProj===proj.id
+                            ? h("div",{style:{flex:1,background:T.faint,borderRadius:8,padding:"5px 8px",minWidth:0},onClick:e=>e.stopPropagation()},
+                                h("div",{style:{fontSize:10,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},"Sale"),
+                                h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                                  h("span",{style:{fontSize:12,color:T.sub}},"$"),
+                                  h("input",{
+                                    type:"number",min:0,step:0.01,autoFocus:true,
+                                    defaultValue:salePrice||"",
+                                    placeholder:"0.00",
+                                    onBlur:e=>{setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value}:x));setEditSaleProj(null);},
+                                    onKeyDown:e=>{if(e.key==="Enter"||e.key==="Escape"){setProjs(p=>p.map(x=>x.id===proj.id?{...x,salePrice:e.target.value}:x));setEditSaleProj(null);}},
+                                    style:{flex:1,background:"transparent",border:"none",borderBottom:"1px solid "+T.border,color:T.text,fontSize:13,fontWeight:600,outline:"none",width:"100%",padding:"1px 0"}
+                                  })
+                                )
+                              )
+                            : h("div",{
+                                onClick:e=>{e.stopPropagation();setEditSaleProj(proj.id);},
+                                style:{flex:1,background:salePrice?T.text+"10":T.faint,borderRadius:8,padding:"7px 10px",cursor:"pointer",minWidth:0}},
+                                h("div",{style:{fontSize:10,fontWeight:600,color:salePrice?T.text:T.dim,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}},"Sale"),
+                                salePrice
+                                  ? h("div",{style:{fontSize:13,fontWeight:700,color:T.text}},fmtCost(salePrice))
+                                  : h("div",{style:{fontSize:13,color:T.border,letterSpacing:"0.15em"}},"– –")
+                              ),
+                          profit!==null?stat(profit>=0?"Profit":"Loss",(profit>=0?"+":"")+fmtCost(profit),profit>=0?T.green:T.red):stat("Profit",null,T.green)
+                        );
+                      })()
+                    ),
+                    isExp&&h(ProjectExpanded,{
+                      proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
+                      activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,
+                      T,secLabel,card,entryCost,projCogsTotals,currentUser,
+                      setLf,setLogSheet,setEditingProj,setPf,setConfirmProj,setConfirmEntry,
+                      STATUSES,LiveTimer,Btn,ProjEmpLog,ProjectDetails,VendorBreakdown,NotesLog
+                    })
+                  )
+                );
+              })
+            ) // close projects padding div
+          ) // close group card
+          ]; // close inner array
+            }); // close flatMap
+          })() // close IIFE
+
+        ),
+
+        // CREW TAB
+        adminTab==="crew"&&h("div",null,
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+            h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+              h("span",{style:{fontSize:13,color:T.sub}},activeEmps.length+" active"+(archivedEmps.length>0?" · "+archivedEmps.length+" archived":"")),
+              archivedEmps.length>0&&h("button",{onClick:()=>setShowArchived(p=>!p),style:{fontSize:11,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",cursor:"pointer"}},showArchived?"Hide Archived":"Show Archived")
+            ),
+            h(Btn,{label:"+ Employee",size:"sm",onClick:()=>{setEf({name:"",role:ROLES[0],rate:""});setEditingEmp("new");}})
+          ),
+
+          // Inline new employee form
+          editingEmp==="new"&&h("div",{style:{...card,marginBottom:12,padding:16,background:"#F0FDF4",border:"1.5px solid #BBF7D0"}},
+            h("div",{style:{fontSize:12,fontWeight:700,color:T.green,marginBottom:12}},"NEW EMPLOYEE"),
+            h(Field,{label:"Full Name",value:ef.name,onChange:v=>setEf({...ef,name:v})}),
+            h(Field,{label:"Role",value:ef.role,onChange:v=>setEf({...ef,role:v}),options:ROLES}),
+            h(Field,{label:"Hourly Rate ($)",value:String(ef.rate||""),onChange:v=>setEf({...ef,rate:v})}),
+            h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+              h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setEditingEmp(null)}),
+              h(Btn,{label:"✓ Add Employee",onClick:()=>{if(!ef.name.trim())return;setEmps(p=>[...p,{id:Date.now(),name:ef.name,role:ef.role,color:COLORS[p.length%COLORS.length],rate:+ef.rate||0}]);setEditingEmp(null);}})
+            )
+          ),
+
+          activeEmps.length===0&&!showArchived&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No crew yet."),
+          (showArchived?emps:activeEmps).map(emp=>{
+            const myProjs=projs.filter(p=>p.assignedTo.includes(emp.id));
+            const hrs=empMs(emp.id);
+            const isActive=active.some(e=>e.empId===emp.id);
+            const isExp=expandCrew===emp.id;
+            const draft=empDrafts[emp.id];
+            const isDirty=draft&&(draft.name!==emp.name||draft.role!==emp.role||draft.rate!==(emp.rate||0));
+            const dv=draft||{name:emp.name,role:emp.role,rate:emp.rate||0};
+            const startDraft=()=>{ if(!empDrafts[emp.id]) setEmpDrafts(p=>({...p,[emp.id]:{name:emp.name,role:emp.role,rate:emp.rate||0}})); };
+            const cancelDraft=()=>setEmpDrafts(p=>{const n={...p};delete n[emp.id];return n;});
+            const saveDraft=()=>{setEmps(p=>p.map(x=>x.id===emp.id?{...x,name:dv.name,role:dv.role,rate:+dv.rate||0}:x));cancelDraft();};
+            return h("div",{key:emp.id,style:{...card,marginBottom:8,border:isDirty?"1.5px solid "+T.amber:"1px solid "+T.border}},
+              h("div",{style:{padding:"12px 16px",cursor:"pointer"},onClick:()=>setExpandCrew(isExp?null:emp.id)},
+                h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                  h("div",{style:{width:9,height:9,borderRadius:"50%",background:emp.color,flexShrink:0}}),
+                  h("div",{style:{flex:1,minWidth:0}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:2}},
+                      h("span",{style:{fontSize:15,fontWeight:700,color:emp.archived?T.dim:T.text}},emp.name),
+                      emp.archived&&h("span",{style:{fontSize:10,color:T.dim,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px"}},"Archived"),
+                      !emp.archived&&isActive&&badge(T.green,"● On Clock")
+                    ),
+                    h("div",{style:{fontSize:12,color:T.sub}},emp.role+(emp.rate?" · $"+emp.rate+"/h":"")+(hrs>0?" · ":""),hrs>0&&h("span",{style:{color:T.amber,fontWeight:600}},fmtHrs(hrs)+" total"))
+                  ),
+                  // Archive/Restore button always visible in header
+                  emp.archived
+                    ? h("button",{onClick:e=>{e.stopPropagation();unarchiveEmp(emp.id);},style:{flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px",background:"#F0FDF4",color:T.green,border:"1px solid #BBF7D0"}},"Restore")
+                    : h("button",{onClick:e=>{e.stopPropagation();archiveEmp(emp.id);setExpandCrew(null);},style:{flexShrink:0,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,padding:"4px 10px",background:"#FFFBEB",color:T.amber,border:"1px solid #FDE68A"}},"Archive"),
+                  h("span",{style:{color:T.dim,fontSize:12}},isExp?"▲":"▼")
+                )
+              ),
+              isExp&&h("div",{style:{borderTop:"1px solid "+T.line}},
+                h("div",{style:{padding:"12px 16px",borderBottom:"1px solid "+T.line,display:"flex",flexDirection:"column",gap:8}},
+                  h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                    h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",minWidth:44}},"Name"),
+                    h("input",{value:dv.name,onFocus:startDraft,onChange:e=>setEmpDrafts(p=>({...p,[emp.id]:{...dv,name:e.target.value}})),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}})
+                  ),
+                  h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                    h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",minWidth:44}},"Role"),
+                    h("select",{value:dv.role,onFocus:startDraft,onChange:e=>setEmpDrafts(p=>({...p,[emp.id]:{...dv,role:e.target.value}})),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",appearance:"none"}},
+                      ROLES.map(r=>h("option",{key:r,value:r},r))
+                    )
+                  ),
+                  h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                    h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,textTransform:"uppercase",letterSpacing:"0.04em",minWidth:44}},"Rate"),
+                    h("div",{style:{display:"flex",alignItems:"center",gap:6,flex:1}},
+                      h("span",{style:{fontSize:13,color:T.sub}},"$"),
+                      h("input",{value:dv.rate,type:"number",min:0,onFocus:startDraft,onChange:e=>setEmpDrafts(p=>({...p,[emp.id]:{...dv,rate:e.target.value}})),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
+                      h("span",{style:{fontSize:12,color:T.sub}},"/hr")
+                    )
+                  ),
+                  // Confirm / cancel row — only visible when dirty
+                  isDirty&&h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4}},
+                    h("button",{onClick:cancelDraft,style:{background:"#FEF2F2",color:T.red,border:"1px solid #FECACA",borderRadius:8,padding:"7px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}},"✕ Cancel"),
+                    h("button",{onClick:saveDraft,style:{background:"#F0FDF4",color:T.green,border:"1px solid #BBF7D0",borderRadius:8,padding:"7px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}},"✓ Save")
+                  )
+                ),
+                h("div",{style:{padding:"12px 16px"}},
+                  myProjs.length>0&&h("div",{style:{marginBottom:12}},
+                    h("div",{style:secLabel},"Projects"),
+                    myProjs.map(p=>{
+                      const ph=done.filter(e=>e.empId===emp.id&&e.projId===p.id).reduce((s,e)=>s+(e.end-e.start),0);
+                      const act=activeFor(emp.id,p.id);
+                      return h("div",{key:p.id,style:{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid "+T.line}},
+                        h("div",{style:{width:6,height:6,borderRadius:"50%",background:SC[p.status]||T.dim,flexShrink:0}}),
+                        h("span",{style:{flex:1,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},p.name),
+                        act&&h("span",{style:{fontSize:12,fontWeight:700,color:T.green}},h(LiveTimer,{start:act.start})),
+                        ph>0&&!act&&h("span",{style:{fontSize:12,fontWeight:600,color:T.amber}},fmtHrs(ph)),
+                        h("span",{style:{fontSize:11,color:SC[p.status]||T.dim,fontWeight:600}},p.status)
+                      );
+                    })
+                  ),
+                  h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+                    h(Btn,{label:"+ Log Hours",size:"sm",variant:"ghost",onClick:()=>{setLf({empId:String(emp.id),projId:"",hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}}),
+                    h(Btn,{label:"Delete",size:"sm",variant:"danger",onClick:()=>setConfirmEmp(emp)})
+                  )
+                )
+              )
+            );
+          })
+        ),
+
+        //  -- CLIENTS TAB --
+        adminTab==="clients"&&h(ClientsTab,{clients,setClients,projs,setProjs,cogs,done,emps,entryCost,fmtHrs,fmtCost,T,card,secLabel,setAdminTab,setPf,setEditingProj}),
+
+        //  -- PAYROLL TAB --
+        adminTab==="payroll"&&(()=>{
+          const {winStart,winEnd} = getDateWindow(payrollRange,payrollOffset,payrollCustomStart,payrollCustomEnd);
+          const filtDone = winStart ? done.filter(e=>e.start>=winStart&&e.start<winEnd) : done;
+          const totalPayroll = emps.filter(e=>!e.archived).reduce((s,emp)=>s+filtDone.filter(e=>e.empId===emp.id).reduce((ss,e)=>ss+entryCost(e),0),0);
+
+          return h("div",null,
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+              h("div",{style:{fontSize:13,fontWeight:700,color:T.text}},"Payroll Summary"),
+              totalPayroll>0&&h("div",{style:{fontSize:14,fontWeight:800,color:T.green}},fmtCost(totalPayroll))
+            ),
+            h(DateFilter,{range:payrollRange,setRange:setPayrollRange,offset:payrollOffset,setOffset:setPayrollOffset,customStart:payrollCustomStart,setCustomStart:setPayrollCustomStart,customEnd:payrollCustomEnd,setCustomEnd:setPayrollCustomEnd,T}),
+            emps.filter(e=>!e.archived).map(emp=>{
+              const empEntries = filtDone.filter(e=>e.empId===emp.id);
+              const totalMs = empEntries.reduce((s,e)=>s+(e.end-e.start),0);
+              const totalPay = empEntries.reduce((s,e)=>s+entryCost(e),0);
+              if(!totalMs) return null;
+              const byProj = {};
+              empEntries.forEach(e=>{
+                const p=projs.find(x=>x.id===e.projId);
+                const k=p?p.name:"Unknown";
+                if(!byProj[k])byProj[k]={ms:0,cost:0};
+                byProj[k].ms+=(e.end-e.start);
+                byProj[k].cost+=entryCost(e);
+              });
+              return h("div",{key:emp.id,style:{...card,marginBottom:12,overflow:"hidden"}},
+                h("div",{style:{padding:"12px 16px",background:emp.color+"12",borderBottom:"1px solid "+T.line,display:"flex",alignItems:"center",gap:10}},
+                  h("div",{style:{width:34,height:34,borderRadius:"50%",background:emp.color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:emp.color}},emp.name[0]),
+                  h("div",{style:{flex:1}},
+                    h("div",{style:{fontSize:14,fontWeight:700,color:T.text}},emp.name),
+                    h("div",{style:{fontSize:11,color:T.sub}},emp.role+(emp.rate?" · $"+emp.rate+"/hr":""))
+                  ),
+                  h("div",{style:{textAlign:"right"}},
+                    h("div",{style:{fontSize:14,fontWeight:800,color:T.green}},fmtCost(totalPay)),
+                    h("div",{style:{fontSize:11,color:T.dim}},fmtHrs(totalMs))
+                  )
+                ),
+                Object.keys(byProj).length>0&&h("div",{style:{padding:"10px 16px"}},
+                  h("div",{style:{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}},"By Project"),
+                  Object.entries(byProj).sort((a,b)=>b[1].cost-a[1].cost).map(([name,{ms,cost}])=>
+                    h("div",{key:name,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid "+T.line}},
+                      h("span",{style:{flex:1,fontSize:12,color:T.text}},name),
+                      h("span",{style:{fontSize:11,color:T.amber}},fmtHrs(ms)),
+                      h("span",{style:{fontSize:12,fontWeight:600,color:T.green}},fmtCost(cost))
+                    )
+                  )
+                )
+              );
+            })
+          );
+        })(),
+
+        //  -- VENDORS TAB --
+        adminTab==="vendors"&&(()=>{
+          // Date window
+          const now = new Date();
+          const {winStart,winEnd} = getDateWindow(vendorRange,vendorOffset,vendorCustomStart,vendorCustomEnd);
+
+          // Flatten all cogs items, filter by date window
+          const allItems=Object.entries(cogs).flatMap(([projId,items])=>items.map(i=>({...i,_projId:+projId})));
+          const filtItems=winStart?allItems.filter(i=>{ const d=new Date(i.date).getTime(); return d>=winStart&&d<winEnd; }):allItems;
+
+          // Total spent per vendor
+          const vendorTotals={};
+          filtItems.forEach(i=>{ if(i.vendor){ vendorTotals[i.vendor]=(vendorTotals[i.vendor]||0)+(+i.amount||0); } });
+          const grandTotal=Object.values(vendorTotals).reduce((s,v)=>s+v,0);
+
+          return h("div",null,
+            // Header
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+              h("span",{style:{fontSize:13,color:T.sub}},vendors.length+" vendor"+(vendors.length!==1?"s":"")),
+              h("button",{onClick:()=>setVendors(p=>[...p,{id:Date.now(),name:"New Vendor"}]),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"6px 14px",background:T.text,color:"#FFF",border:"none"}},"+ Add Vendor")
+            ),
+
+            // Date filter
+            h(DateFilter,{range:vendorRange,setRange:setVendorRange,offset:vendorOffset,setOffset:setVendorOffset,customStart:vendorCustomStart,setCustomStart:setVendorCustomStart,customEnd:vendorCustomEnd,setCustomEnd:setVendorCustomEnd,T}),
+
+            // Grand total banner
+            grandTotal>0&&h("div",{style:{background:T.text,borderRadius:10,padding:"12px 16px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              h("span",{style:{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.6)",letterSpacing:"0.06em",textTransform:"uppercase"}},"Total Spent"),
+              h("span",{style:{fontSize:18,fontWeight:800,color:"#60A5FA"}},fmtCost(grandTotal))
+            ),
+
+            // Vendor list
+            vendors.length===0&&h("div",{style:{fontSize:13,color:T.dim,textAlign:"center",padding:48}},"No vendors yet. Add one above."),
+            vendors
+              .map(v=>({...v, spent: vendorTotals[v.name]||0, invoices: filtItems.filter(i=>i.vendor===v.name).sort((a,b)=>b.date.localeCompare(a.date))}))
+              .sort((a,b)=>b.spent-a.spent)
+              .map(v=>{
+                const isOpen = expandVendor===v.id;
+                return h("div",{key:v.id,style:{background:T.surf,border:"1px solid "+T.border,borderRadius:10,marginBottom:8,overflow:"hidden"}},
+                  // Vendor header — tap to expand
+                  h("div",{style:{padding:"12px 14px"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:v.spent>0?8:0}},
+                      h("input",{value:v.name,onClick:e=>e.stopPropagation(),onChange:e=>setVendors(p=>p.map(x=>x.id===v.id?{...x,name:e.target.value}:x)),style:{flex:1,background:T.faint,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none"}}),
+                      v.spent>0&&h("span",{style:{fontSize:13,fontWeight:700,color:T.blue,flexShrink:0}},fmtCost(v.spent)),
+                      v.invoices.length>0&&h("button",{onClick:()=>setExpandVendor(isOpen?null:v.id),style:{background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,color:T.blue,cursor:"pointer",fontSize:11,fontWeight:600,padding:"3px 8px",flexShrink:0}},isOpen?"▲ Hide":"▼ "+v.invoices.length+" invoice"+(v.invoices.length!==1?"s":"")),
+                      h("button",{onClick:()=>setConfirmVendor(v),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:18,padding:"0 4px",lineHeight:1}},"×")
+                    ),
+                    v.spent>0&&grandTotal>0&&h("div",null,
+                      h("div",{style:{background:T.faint,borderRadius:4,height:4}},
+                        h("div",{style:{background:T.blue,borderRadius:4,height:4,width:Math.round(v.spent/grandTotal*100)+"%",transition:"width .4s"}})
+                      ),
+                      h("div",{style:{fontSize:10,color:T.dim,marginTop:3}},Math.round(v.spent/grandTotal*100)+"% of total")
+                    )
+                  ),
+                  // Invoices list — expandable
+                  isOpen&&h("div",{style:{borderTop:"1px solid "+T.line}},
+                    v.invoices.map(inv=>
+                      h("div",{key:inv.id,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderBottom:"1px solid "+T.line,background:T.faint}},
+                        h("div",{style:{flex:1,minWidth:0}},
+                          h("div",{style:{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},inv.desc||"—"),
+                          h("div",{style:{fontSize:10,color:T.dim,marginTop:1}},
+                            [inv.invoiceNo?"#"+inv.invoiceNo:null, inv.date, projs.find(p=>p.id===inv._projId||Object.entries(cogs).find(([pid,items])=>items.some(i=>i.id===inv.id)))?.[0]].filter(Boolean).join(" · ")
+                          )
+                        ),
+                        h("span",{style:{fontSize:13,fontWeight:700,color:T.blue,flexShrink:0}},fmtCost(+inv.amount||0))
+                      )
+                    ),
+                    h("div",{style:{padding:"8px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+                      h("span",{style:{fontSize:11,color:T.sub}},v.invoices.length+" invoice"+(v.invoices.length!==1?"s":"")),
+                      h("span",{style:{fontSize:13,fontWeight:700,color:T.blue}},fmtCost(v.spent))
+                    )
+                  )
+                );
+              })
+          );
+        })()
+      ),
+
+      // Lock button
+      h("div",{style:{position:"fixed",bottom:24,right:20,zIndex:50}},
+        h("button",{onClick:()=>{setMode("worker");setCurrentUser(null);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:12,padding:"10px 18px",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}},"🔒 Lock")
+      )
+    ),
+
+    // Toast notification
+    toast&&h("div",{style:{
+      position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",
+      background:toast.color,color:"#FFF",
+      borderRadius:14,padding:"14px 24px",
+      fontSize:15,fontWeight:700,textAlign:"center",
+      boxShadow:"0 8px 32px rgba(0,0,0,0.25)",
+      zIndex:300,whiteSpace:"pre-line",
+      animation:"fadeInUp 0.2s ease",
+      minWidth:200,maxWidth:280
+    }},toast.msg),
+
+    // SHEETS
+    receiptSheet&&h(ReceiptSheet,{info:receiptSheet,cogs,setCogs,vendors,onClose:()=>setReceiptSheet(null)}),
+
+
+    logSheet&&h(Sheet,{title:"Log Hours",onClose:()=>setLogSheet(null)},
+      h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Employee"),
+        h("select",{value:lf.empId,onChange:e=>setLf({...lf,empId:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+          h("option",{value:""},"Select employee…"),
+          emps.map(e=>h("option",{key:e.id,value:e.id},e.name))
+        )
+      ),
+      h("div",{style:{marginBottom:14}},
+        h("div",{style:{fontSize:11,fontWeight:600,color:T.sub,letterSpacing:"0.04em",textTransform:"uppercase",marginBottom:5}},"Project"),
+        h("select",{value:lf.projId,onChange:e=>setLf({...lf,projId:e.target.value}),style:{width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",appearance:"none"}},
+          h("option",{value:""},"Select project…"),
+          projs.map(p=>h("option",{key:p.id,value:p.id},p.name))
+        )
+      ),
+      h(Field,{label:"Hours worked (e.g. 3.5)",value:lf.hours,onChange:v=>setLf({...lf,hours:v})}),
+      h(Field,{label:"Date",value:lf.date,onChange:v=>setLf({...lf,date:v}),type:"date"}),
+      h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+        h(Btn,{label:"Cancel",variant:"ghost",onClick:()=>setLogSheet(null)}),
+        h(Btn,{label:"Save Entry",onClick:saveLog})
+      )
+    ),
+
+    importSheet&&h(ImportSheet,{
+      emps,projs,
+      onClose:()=>setImportSheet(false),
+      onSave:(newEntries)=>{setEntries(p=>[...p,...newEntries]);setImportSheet(false);}
+    }),
+
+    cogsSheet&&(()=>{
+      const proj=projs.find(p=>p.id===cogsSheet);
+      if(!proj)return null;
+      return h(CogsSheet,{
+        projId:cogsSheet, proj, cogs, setCogs, vendors,
+        onBudgetChange:(val)=>setProjs(p=>p.map(x=>x.id===cogsSheet?{...x,budget:val}:x)),
+        onClose:()=>setCogsSheet(null),
+        onAddVendor:(name)=>setVendors(p=>[...p,{id:Date.now(),name}])
+      });
+    })(),
+    confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,onConfirm:()=>deleteEntry(confirmEntry.id),onCancel:()=>setConfirmEntry(null)}),
+
+    // Project delete confirm
+    confirmProj&&h("div",{onClick:()=>setConfirmProj(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Delete project?"),
+        h("div",{style:{fontSize:14,color:"#78716C",marginBottom:4}},confirmProj.name),
+        confirmProj.client&&h("div",{style:{fontSize:12,color:"#A8A29E",marginBottom:4}},confirmProj.client),
+        h("div",{style:{fontSize:12,color:"#DC2626",marginBottom:20}},"This will delete all time logs for this project."),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmProj(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>{delProj(confirmProj.id);setConfirmProj(null);},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+        )
+      )
+    ),
+
+    // Employee delete confirm
+    confirmEmp&&h("div",{onClick:()=>setConfirmEmp(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Remove employee?"),
+        h("div",{style:{fontSize:14,color:"#78716C",marginBottom:4}},confirmEmp.name),
+        h("div",{style:{fontSize:12,color:"#A8A29E",marginBottom:4}},confirmEmp.role),
+        h("div",{style:{fontSize:12,color:"#DC2626",marginBottom:20}},"This will delete all their time logs."),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmEmp(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>{delEmp(confirmEmp.id);setConfirmEmp(null);},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+        )
+      )
+    ),
+
+    // Vendor delete confirm
+    confirmVendor&&h("div",{onClick:()=>setConfirmVendor(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Remove vendor?"),
+        h("div",{style:{fontSize:14,color:"#78716C",marginBottom:20}},confirmVendor.name),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmVendor(null),style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>{setVendors(p=>p.filter(x=>x.id!==confirmVendor.id));setConfirmVendor(null);},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Remove")
+        )
+      )
+    )
   );
 }
 
-
-//  -- ProposalsTab --
-function ProposalsTab({proposals,setProposals,clients,setClients,projs,setProjs,setAdminTab,fmtCost,T,card,secLabel,STATUSES,projDetails,cogs}) {
-  const [expandId,setExpandId]   = React.useState(null);
-  const [editingId,setEditingId] = React.useState(null);
-  const [confirmId,setConfirmId] = React.useState(null);
-  const [addingRoom,setAddingRoom] = React.useState(null);
-  const [newRoom,setNewRoom]     = React.useState({name:"",price:""});
-  const [viewImg,setViewImg]       = React.useState(null);
-  const [generating,setGenerating] = React.useState(null);
-  const [showNewClient,setShowNewClient] = React.useState(false);
-  const [newClientName,setNewClientName] = React.useState("");
-  const [showImport,setShowImport]       = React.useState(false);
-  const [selectedProjs,setSelectedProjs] = React.useState([]);
-  const [importFilter,setImportFilter]   = React.useState("All");
-  const [importFileSelections,setImportFileSelections] = React.useState({}); // {projId: Set of file ids to include}
-  const [importPropId,setImportPropId]   = React.useState(null); // proposal being edited // proposal id being generated
-
-  const blank = {
-    id:null, name:"", client:"", description:"", notes:"",
-    rooms:[],
-    status:"Draft", createdAt:new Date().toISOString().slice(0,10)
-  };
-  const [form,setForm] = React.useState(blank);
-
-  const inp = {width:"100%",background:T.faint,border:"1px solid "+T.border,borderRadius:8,color:T.text,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"};
-  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
-
-  function save() {
-    if(!form.name.trim()) return;
-    if(form.id) {
-      setProposals(p=>p.map(x=>x.id===form.id?{...form}:x));
-    } else {
-      setProposals(p=>[...p,{...form,id:Date.now()}]);
+// Error boundary wrapper
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state={error:null}; }
+  static getDerivedStateFromError(e) { return {error:e}; }
+  render() {
+    if(this.state.error) {
+      return React.createElement("div",{style:{padding:32,fontFamily:"sans-serif",color:"#DC2626",lineHeight:1.6}},
+        React.createElement("div",{style:{fontSize:18,fontWeight:700,marginBottom:8}},"Something went wrong"),
+        React.createElement("div",{style:{fontSize:13,color:"#78716C",marginBottom:16}},"Please reload the page. If the problem persists, try clearing your browser cache."),
+        React.createElement("details",{style:{fontSize:11,color:"#A8A29E"}},
+          React.createElement("summary",null,"Error details"),
+          React.createElement("pre",{style:{marginTop:8,whiteSpace:"pre-wrap",fontSize:10}},String(this.state.error))
+        ),
+        React.createElement("button",{onClick:()=>window.location.reload(),style:{marginTop:16,background:"#1C1917",color:"#FFF",border:"none",borderRadius:8,padding:"10px 20px",fontSize:14,cursor:"pointer"}},"Reload App")
+      );
     }
-    setForm(blank); setEditingId(null);
+    return this.props.children;
   }
+}
 
-  async function handleImage(e) {
-    const files = Array.from(e.target.files);
-    for(const file of files) {
-      if(file.size>5*1024*1024){alert("Max 5MB per image");continue;}
-      const data = await new Promise((res,rej)=>{
-        const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file);
-      });
-      setForm(f=>({...f,images:[...f.images,{id:Date.now()+Math.random(),name:file.name,data,date:new Date().toISOString().slice(0,10)}]}));
-    }
-    e.target.value="";
-  }
-
-  function addRoom() {
-    if(!newRoom.name.trim()) return;
-    setForm(f=>({...f,rooms:[...f.rooms,{id:Date.now(),name:newRoom.name,price:newRoom.price,images:[],selections:{material:"",finish:"",hardware:"",doorProfile:""}}]}));
-    setNewRoom({name:"",price:""});
-  }
-
-  function convertToProject(prop) {
-    const newProj = {
-      id:Date.now(), name:prop.name, client:prop.client,
-      status:"Not Started", deadline:"", assignedTo:[],
-      salePrice: prop.rooms.reduce((s,r)=>s+(+r.price||0),0)||"",
-      notes:prop.notes
-    };
-    setProjs(p=>[...p,newProj]);
-    setProposals(p=>p.map(x=>x.id===prop.id?{...x,status:"Converted",projId:newProj.id}:x));
-    setAdminTab("projects");
-  }
-
-  function generateShareHTML(prop) {
-    const total = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
-    const selLabels = {material:"Material",finish:"Paint / Stain",hardware:"Hardware",doorProfile:"Door Profile"};
-    const roomsHtml = prop.rooms.map(r=>{
-      const imgs = (r.images||[]).map(img=>'<img src="'+(img.b64||img.data||img.url||'')+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;margin-bottom:4px">').join('');
-      const sels = ["material","finish","hardware","doorProfile"].filter(k=>(r.selections||{})[k]).map(k=>'<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #F0EDE8;font-size:13px"><span style="color:#78716C;min-width:120px;font-weight:600">'+selLabels[k]+'</span><span>'+(r.selections||{})[k]+'</span></div>').join('');
-      return '<div style="background:#F8F7F4;border-radius:10px;padding:14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:15px;font-weight:700">'+r.name+'</span>'+(r.price?'<span style="font-size:15px;font-weight:700;color:#16A34A">$'+Number(r.price).toLocaleString()+'</span>':'')+'</div>'+(imgs?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-bottom:8px">'+imgs+'</div>':'')+(sels?'<div>'+sels+'</div>':'')+'</div>';
-    }).join('');
-    const totalHtml = total>0?'<div style="display:flex;justify-content:space-between;padding:12px 0;font-size:16px;font-weight:800;border-top:2px solid #E5E2DC"><span>Total</span><span>$'+total.toLocaleString()+'</span></div>':'';
-    const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+prop.name+' \u2014 Alfa Studio Proposal</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#F8F7F4;color:#1C1917}.header{background:#1C1917;color:#FFF;padding:24px 32px}.header h1{font-size:24px;font-weight:800;margin-bottom:4px}.header p{font-size:14px;opacity:0.6}.content{max-width:800px;margin:0 auto;padding:24px 20px}.section{background:#FFF;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #E5E2DC}.section h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#78716C;margin-bottom:12px}.notes{font-size:14px;line-height:1.7;white-space:pre-wrap}.footer{text-align:center;padding:32px;font-size:12px;color:#A8A29E}textarea{width:100%;border:1px solid #E5E2DC;border-radius:8px;padding:10px;font-size:13px;outline:none;resize:vertical;min-height:80px;font-family:inherit;background:#F8F7F4}button{margin-top:8px;background:#1C1917;color:#FFF;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer}</style></head><body><div class="header"><h1>'+prop.name+'</h1><p>'+(prop.client||'Alfa Studio')+(prop.createdAt?' &middot; '+prop.createdAt:'')+'</p></div><div class="content">'+(prop.description?'<div class="section"><h2>Overview</h2><p class="notes">'+prop.description+'</p></div>':'')+(prop.rooms.length>0?'<div class="section"><h2>Scope &amp; Pricing</h2>'+roomsHtml+totalHtml+'</div>':'')+(prop.notes?'<div class="section"><h2>Notes</h2><p class="notes">'+prop.notes+'</p></div>':'')+'<div class="section"><h2>Your Comments</h2><textarea placeholder="Add your comments, feedback, or questions here\u2026"></textarea><button onclick="var t=this.previousElementSibling;if(t.value.trim()){alert(\'Thank you! We will be in touch shortly.\');t.value=\'\';}">Submit Comments</button></div></div><div class="footer">Prepared by Alfa Studio &middot; '+new Date().toLocaleDateString()+'</div></body></html>';
-    return html;
-  }
-
-  async function shareProposal(prop) {
-    setSyncing(true);
-    try {
-      const total2 = prop.rooms.reduce((s,r)=>s+(+r.price||0),0);
-      const dateStr2 = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-      const refStr2 = 'AFS-'+new Date().toISOString().slice(2,10).replace(/-/g,'');
-      const selLabels2 = {material:'Material',finish:'Paint / Stain',hardware:'Hardware',doorProfile:'Door Profile'};
-
-      // Build pricing rows
-      const pricingRows2 = prop.rooms.map((r,i)=>
-        '<tr style="border-bottom:1px solid #e8e5e0">'+
-          '<td style="padding:11px 0;color:#aaa;font-size:11px;width:36px">'+String(i+1).padStart(2,'0')+'</td>'+
-          '<td style="padding:11px 12px;font-weight:500;color:#1a1a1a">'+r.name+'</td>'+
-          '<td style="padding:11px 0;text-align:right;font-weight:500;color:#1a1a1a;white-space:nowrap">'+
-            (r.price?'$'+Number(r.price).toLocaleString('en-US'):'—')+'</td>'+
-        '</tr>'
-      ).join('');
-
-      // Build room detail sections with embedded PDFs and images
-      const roomSections2 = prop.rooms.map(r=>{
-        const files = r.images||[];
-        const fileEls = files.map(f=>{
-          const src = f.url||f.data||'';
-          const isPdf = (f.type||f.name||'').toLowerCase().includes('pdf');
-          if(!src) return '';
-          if(isPdf){
-            // Render PDF to fit content - no fixed height to avoid white space
-            return '<div style="margin-bottom:8px;border:1px solid #e8e5e0;border-radius:8px;overflow:hidden">'+
-              '<object data="'+src+'#view=FitH&toolbar=0&navpanes=0&scrollbar=0&zoom=75" type="application/pdf" '+
-                'style="width:100%;height:480px;display:block;border:none">'+
-                '<embed src="'+src+'" type="application/pdf" style="width:100%;height:480px;border:none">'+
-                '<a href="'+src+'" target="_blank" style="display:block;padding:16px;text-align:center;color:#2563EB">📄 '+f.name+'</a>'+
-              '</object>'+
-            '</div>';
-          } else {
-            return '<img src="'+src+'" style="width:100%;display:block;border-radius:8px;margin-bottom:8px">';
-          }
-        }).join('');
-
-        const sels2 = ['material','finish','hardware','doorProfile'].filter(k=>(r.selections||{})[k]).map(k=>
-          '<div style="padding:9px 13px;background:#f5f3ef;border-radius:7px">'+
-            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px">'+selLabels2[k]+'</div>'+
-            '<div style="font-size:13px;font-weight:500;color:#1a1a1a">'+(r.selections||{})[k]+'</div>'+
-          '</div>'
-        ).join('');
-
-        return '<div style="margin-bottom:32px;padding-bottom:32px;border-bottom:1px solid #e8e5e0">'+
-          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">'+
-            '<div style="font-size:17px;font-weight:600;color:#1a1a1a">'+r.name+'</div>'+
-            (r.price?'<div style="font-size:16px;font-weight:500;color:#1a1a1a">$'+Number(r.price).toLocaleString('en-US')+'</div>':'')+
-          '</div>'+
-          (fileEls?'<div style="margin-bottom:'+(sels2?'10px':'0')+'">'+fileEls+'</div>':'')+
-          (sels2?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">'+sels2+'</div>':'')+
-        '</div>';
-      }).join('');
-
-      const aiHtml = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'+
-        '<meta name="viewport" content="width=device-width,initial-scale=1">'+
-        '<title>'+prop.name+' — Alfa Studio</title>'+
-        '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f3ef;color:#1a1a1a}'+
-        '@page{margin:0}@media print{.no-print{display:none!important}body{background:#fff}}</style>'+
-        '</head><body>'+
-        '<div style="background:#1a1a1a;padding:40px 48px">'+
-          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px">'+
-            '<div><div style="font-size:20px;font-weight:700;color:#c9a84c;letter-spacing:0.06em">ALFA STUDIO</div>'+
-            '<div style="font-size:10px;letter-spacing:0.2em;color:#555;text-transform:uppercase;margin-top:3px">Premium Custom Cabinetry</div></div>'+
-            '<div style="text-align:right;font-size:12px;line-height:2.2">'+
-              '<div><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#555">Client&nbsp;&nbsp;</span><span style="color:#ccc">'+(prop.client||'—')+'</span></div>'+
-              '<div><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#555">Date&nbsp;&nbsp;</span><span style="color:#ccc">'+dateStr2+'</span></div>'+
-              '<div><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#555">Ref&nbsp;&nbsp;</span><span style="color:#ccc">'+refStr2+'</span></div>'+
-            '</div></div>'+
-          '<div style="padding-top:24px;border-top:1px solid #2a2a2a">'+
-            '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:#555;margin-bottom:8px">Project proposal</div>'+
-            '<div style="font-size:26px;font-weight:500;color:#fff">'+prop.name+'</div>'+
-          '</div>'+
-        '</div>'+
-        '<div style="background:#fff;padding:40px 48px;border-bottom:1px solid #e8e5e0">'+
-          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:18px">Scope & investment</div>'+
-          '<table style="width:100%;border-collapse:collapse">'+
-            '<thead><tr style="border-bottom:2px solid #1a1a1a">'+
-              '<th style="padding:8px 0;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;font-weight:400;width:36px">#</th>'+
-              '<th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;font-weight:400">Room / item</th>'+
-              '<th style="padding:8px 0;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#999;font-weight:400">Investment</th>'+
-            '</tr></thead>'+
-            '<tbody>'+pricingRows2+'</tbody>'+
-            (total2>0?'<tfoot><tr>'+
-              '<td colspan="2" style="padding:18px 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#999">Total project investment</td>'+
-              '<td style="padding:18px 0 6px;text-align:right;font-size:22px;font-weight:600;color:#c9a84c">$'+total2.toLocaleString('en-US',{minimumFractionDigits:2})+'</td>'+
-            '</tr></tfoot>':'')+
-          '</table>'+
-        '</div>'+
-        (roomSections2.trim()?'<div style="background:#f5f3ef;padding:40px 48px">'+
-          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:28px">Room details & layouts</div>'+
-          roomSections2+'</div>':'')+
-        (prop.notes?'<div style="background:#fff;padding:32px 48px;border-top:1px solid #e8e5e0">'+
-          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:12px">Notes</div>'+
-          '<div style="font-size:13px;line-height:1.8;color:#444;white-space:pre-wrap">'+prop.notes+'</div>'+
-        '</div>':'')+
-        '<div class="no-print" style="background:#fff;padding:28px 48px;border-top:1px solid #e8e5e0">'+
-          '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#999;margin-bottom:10px">Client notes & comments</div>'+
-          '<textarea style="width:100%;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:13px;outline:none;resize:vertical;min-height:72px;font-family:inherit;background:#f9f7f4;color:#1a1a1a" placeholder="Add any notes or questions here…"></textarea>'+
-        '</div>'+
-        '<div style="background:#fff;padding:36px 48px;border-top:1px solid #e8e5e0;display:grid;grid-template-columns:1fr 1fr;gap:60px">'+
-          '<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:36px">Client approval</div>'+
-            '<div style="border-bottom:1px solid #1a1a1a;margin-bottom:7px"></div>'+
-            '<div style="font-size:11px;color:#aaa">Authorized signature</div></div>'+
-          '<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:36px">&nbsp;</div>'+
-            '<div style="border-bottom:1px solid #1a1a1a;margin-bottom:7px"></div>'+
-            '<div style="font-size:11px;color:#aaa">Date</div></div>'+
-        '</div>'+
-        '</body></html>';
-
-      // Save to Supabase Storage
-      const htmlBlob = new Blob([aiHtml], {type:'text/html'});
-      const htmlPath = 'proposals/proposal-'+prop.id+'.html';
-      let htmlUrl = null;
-      try { htmlUrl = await uploadFile('project-files', htmlPath, htmlBlob, 'text/html'); } catch(e) {}
-
-      setProposals(p=>p.map(x=>x.id===prop.id?{...x,generatedHtml:aiHtml,generatedHtmlUrl:htmlUrl,generatedAt:new Date().toISOString().slice(0,10)}:x));
-
-      // Open immediately
-      const blob = new Blob([aiHtml],{type:'text/html'});
-      window.open(URL.createObjectURL(blob),'_blank');
-
-    } catch(err) {
-      alert('Error generating proposal: '+err.message);
-    }
-    setSyncing(false);
-  }
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ErrorBoundary,null,React.createElement(App)));
+</script>
+</body>
+</html>

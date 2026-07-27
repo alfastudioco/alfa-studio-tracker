@@ -1030,9 +1030,21 @@ function ProjectDetails({projId, projDetails, setProjDetails, T, line, faint, se
             h("div",{style:{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},f.name),
             h("div",{style:{fontSize:11,color:T.dim}},f.date)
           ),
-          // View button for images
-          f.type.startsWith("image")&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"View"),
-          f.type==="application/pdf"&&h("a",{href:f.data,target:"_blank",style:{fontSize:11,color:T.blue,textDecoration:"none",flexShrink:0}},"Open"),
+          // View/Open button — use URL (Supabase Storage) or base64 fallback
+          (f.url||f.data)&&h("button",{onClick:()=>{
+            const src=f.url||f.data;
+            if(f.url){window.open(f.url,"_blank");return;}
+            // base64 fallback for PDFs
+            if((f.type||"").includes("pdf")){
+              const b=atob(src.split(",")[1]);const bytes=new Uint8Array(b.length);
+              for(let i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);
+              window.open(URL.createObjectURL(new Blob([bytes],{type:"application/pdf"})),"_blank");
+            } else {
+              const w=window.open("","_blank");
+              w.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>');
+            }
+          },style:{fontSize:11,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0,fontWeight:600}},
+            (f.type||"").includes("pdf")?"Open":"View"),
           h("button",{onClick:()=>removeFile(f.id),style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",flexShrink:0}},"×")
         )
       )
@@ -2099,7 +2111,18 @@ function App(){
           dbLoad("projdetails"), dbLoad("proposals")
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
-        setEmps(e&&e.length>0 ? e : load("alfa_emps", DEFAULT_EMPS));
+        if(e&&e.length>0){
+          const localEmps=load("alfa_emps",[]);
+          const merged=e.map(sb=>{ const l=localEmps.find(x=>x.id===sb.id); return (l&&+l.rate>0&&!(+sb.rate>0))?{...sb,rate:l.rate}:sb; });
+          setEmps(merged);
+          // Push merged rates back to Supabase so they persist
+          const needsUpdate=merged.some((m,i)=>m.rate!==(e[i]&&e[i].rate));
+          if(needsUpdate) dbSave("employees",merged);
+        } else {
+          const local=load("alfa_emps",DEFAULT_EMPS);
+          setEmps(local);
+          if(local.some(e=>e.rate>0)) dbSave("employees",local);
+        }
         setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
         setEntries(en&&en.length>0 ? en : load("alfa_entries", []));
         if(cl&&cl.length>0) setClients(cl);
@@ -2214,6 +2237,7 @@ function App(){
   useEffect(()=>{
     try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}
     if(isFirstRender.current.emps){ isFirstRender.current.emps=false; return; }
+    if(!dbReady||emps.length===0) return; // don't save default/empty state
     dbSave("employees", emps);
   },[emps]);
 
@@ -2904,7 +2928,13 @@ function App(){
             const dv=draft||{name:emp.name,role:emp.role,rate:emp.rate||0};
             const startDraft=()=>{ if(!empDrafts[emp.id]) setEmpDrafts(p=>({...p,[emp.id]:{name:emp.name,role:emp.role,rate:emp.rate||0}})); };
             const cancelDraft=()=>setEmpDrafts(p=>{const n={...p};delete n[emp.id];return n;});
-            const saveDraft=()=>{setEmps(p=>p.map(x=>x.id===emp.id?{...x,name:dv.name,role:dv.role,rate:+dv.rate||0}:x));cancelDraft();};
+            const saveDraft=()=>{
+              const rate=parseFloat(dv.rate)||0;
+              const updated={...emp,name:dv.name,role:dv.role,rate};
+              setEmps(p=>p.map(x=>x.id===emp.id?updated:x));
+              dbSave("employees",[updated]); // save directly to Supabase immediately
+              cancelDraft();
+            };
             return h("div",{key:emp.id,style:{...card,marginBottom:8,border:isDirty?"1.5px solid "+T.amber:"1px solid "+T.border}},
               h("div",{style:{padding:"12px 16px",cursor:"pointer"},onClick:()=>setExpandCrew(isExp?null:emp.id)},
                 h("div",{style:{display:"flex",alignItems:"center",gap:10}},
@@ -3111,6 +3141,103 @@ function App(){
       // Lock button
       h("div",{style:{position:"fixed",bottom:24,right:20,zIndex:50}},
         h("button",{onClick:()=>{setMode("worker");setCurrentUser(null);},style:{background:T.text,color:"#FFF",border:"none",borderRadius:12,padding:"10px 18px",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}},"🔒 Lock")
+      )
+    ),
+
+    // ··· menu sheet
+    menuSheet&&h("div",{onClick:()=>setMenuSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 0 32px",paddingBottom:"env(safe-area-inset-bottom)"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 8px"}}),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.text,padding:"0 20px 12px"}},(projs.find(p=>p.id===menuSheet)||{}).name),
+        [{label:"✏ Edit project",onClick:()=>{const p=projs.find(x=>x.id===menuSheet);if(p){setPf({name:p.name,client:p.client,status:p.status,deadline:p.deadline,assignedTo:[...p.assignedTo],salePrice:p.salePrice||"",notes:p.notes||"",jobName:p.jobName||""});setEditingProj(p.id);}setMenuSheet(null);}},
+         {label:"+ Log hours",onClick:()=>{setLf({empId:"",projId:String(menuSheet),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});setMenuSheet(null);}},
+         {label:"Delete project",danger:true,onClick:()=>{const p=projs.find(x=>x.id===menuSheet);if(p)setConfirmProj(p);setMenuSheet(null);}},
+        ].map(({label,onClick,danger})=>h("div",{key:label,onClick,style:{padding:"14px 20px",fontSize:14,color:danger?"#DC2626":T.text,cursor:"pointer",borderTop:"1px solid "+T.line}},label))
+      )
+    ),
+
+    // Add Note sheet
+    addNoteSheet&&h("div",{onClick:()=>setAddNoteSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px 32px",paddingBottom:"max(32px,env(safe-area-inset-bottom))"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:12}},(projs.find(p=>p.id===addNoteSheet)||{}).name+" — Add Note"),
+        h("textarea",{autoFocus:true,value:quickNote,onChange:e=>setQuickNote(e.target.value),placeholder:"Type your note here…",
+          style:{width:"100%",border:"1px solid "+T.border,borderRadius:8,padding:"10px 12px",fontSize:14,outline:"none",resize:"none",height:100,background:T.faint,color:T.text,fontFamily:"inherit",boxSizing:"border-box",marginBottom:12}}),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>{setAddNoteSheet(null);setQuickNote("");},style:{borderRadius:8,cursor:"pointer",fontSize:13,padding:"8px 16px",background:"transparent",color:T.sub,border:"1px solid "+T.border}},"Cancel"),
+          h("button",{onClick:()=>{if(!quickNote.trim())return;const note={id:Date.now(),text:quickNote.trim(),author:currentUser?.name||"Owner",ts:Date.now()};setProjNotes(p=>({...p,[addNoteSheet]:[...(p[addNoteSheet]||[]),note]}));setAddNoteSheet(null);setQuickNote("");},style:{borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700,padding:"8px 16px",background:T.text,color:"#FFF",border:"none"}},"Save Note")
+        )
+      )
+    ),
+
+    // Add Photo sheet
+    addPhotoSheet&&h("div",{onClick:()=>setAddPhotoSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,padding:"16px 20px 32px",paddingBottom:"max(32px,env(safe-area-inset-bottom))"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"0 auto 16px"}}),
+        h("div",{style:{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}},(projs.find(p=>p.id===addPhotoSheet)||{}).name+" — Add File"),
+        h("div",{style:{fontSize:12,color:T.sub,marginBottom:16}},"Photo or PDF — drag & drop or tap to choose"),
+        h("div",{
+          onDragOver:e=>{e.preventDefault();e.currentTarget.style.background=T.blue+"12";e.currentTarget.style.borderColor=T.blue;},
+          onDragLeave:e=>{e.currentTarget.style.background=T.faint;e.currentTarget.style.borderColor=T.border;},
+          onDrop:async e=>{
+            e.preventDefault();e.currentTarget.style.background=T.faint;e.currentTarget.style.borderColor=T.border;
+            const files=Array.from(e.dataTransfer.files);
+            for(const file of files){
+              const ext=file.name.split(".").pop();const fileId=Date.now()+Math.random();
+              const path="proj-"+addPhotoSheet+"/"+fileId+"."+ext;
+              try{const url=await uploadFile("project-files",path,file,file.type);
+                const nf={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
+                setProjDetails(p=>{const key=String(addPhotoSheet);const upd={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),nf]}};
+                  dbSave("projdetails",[{id:key,projId:+addPhotoSheet,...upd[key],files:upd[key].files.map(f=>f.url?{...f,data:undefined}:f)}]);return upd;});
+              }catch(err){alert("Upload failed: "+err.message);}
+            }
+            setAddPhotoSheet(null);
+          },
+          style:{border:"2px dashed "+T.border,borderRadius:12,padding:"28px 20px",background:T.faint,transition:"all 0.15s",textAlign:"center"}},
+          h("label",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:10,cursor:"pointer"}},
+            h("input",{type:"file",accept:"image/*,application/pdf",multiple:true,style:{display:"none"},onChange:async e=>{
+              const files=Array.from(e.target.files);
+              for(const file of files){
+                const ext=file.name.split(".").pop();const fileId=Date.now()+Math.random();
+                const path="proj-"+addPhotoSheet+"/"+fileId+"."+ext;
+                try{const url=await uploadFile("project-files",path,file,file.type);
+                  const nf={id:fileId,name:file.name,type:file.type,url,path,date:new Date().toISOString().slice(0,10)};
+                  setProjDetails(p=>{const key=String(addPhotoSheet);const upd={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),nf]}};
+                    dbSave("projdetails",[{id:key,projId:+addPhotoSheet,...upd[key],files:upd[key].files.map(f=>f.url?{...f,data:undefined}:f)}]);return upd;});
+                }catch(err){alert("Upload failed: "+err.message);}
+              }
+              e.target.value="";setAddPhotoSheet(null);
+            }}),
+            h("span",{style:{fontSize:32}},"📷"),
+            h("span",{style:{fontSize:13,fontWeight:600,color:T.sub}},"Drag & drop or tap to choose"),
+            h("span",{style:{fontSize:11,color:T.dim}},"Photos, PDFs · Multiple files OK")
+          )
+        )
+      )
+    ),
+
+    // Quick Sheet for Selections, Files, Time, Payments
+    quickSheet&&h("div",{onClick:()=>setQuickSheet(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"16px 16px 0 0",width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",paddingBottom:"env(safe-area-inset-bottom)"}},
+        h("div",{style:{width:36,height:4,background:T.border,borderRadius:2,margin:"10px auto"}}),
+        h("div",{style:{display:"flex",alignItems:"center",padding:"0 20px 12px"}},
+          h("span",{style:{flex:1,fontSize:15,fontWeight:700,color:T.text}},(projs.find(x=>x.id===quickSheet.projId)||{}).name||""),
+          h("button",{onClick:()=>setQuickSheet(null),style:{background:"none",border:"none",fontSize:22,color:T.dim,cursor:"pointer"}},"×")
+        ),
+        h("div",{style:{overflowY:"auto",flex:1}},
+          (()=>{
+            const proj=projs.find(x=>x.id===quickSheet.projId);if(!proj) return null;
+            const projDone=entries.filter(e=>e.end&&e.projId===proj.id).sort((a,b)=>b.start-a.start);
+            if(quickSheet.section==="timelog") return h("div",{style:{padding:"8px"}},
+              h(ProjEmpLog,{entries:projDone,emps,onDelete:e=>setConfirmEntry(e),onEdit:e=>setEntries(p=>p.map(x=>x.id===e.id?e:x))})
+            );
+            if(quickSheet.section==="payments") return h(PaymentsPanel,{
+              projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T,line:T.line,faint:T.faint
+            });
+            return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,T,line:T.line,faint:T.faint,secLabel,
+              defaultTab:quickSheet.section==="files"?"files":"info"});
+          })()
+        )
       )
     ),
 

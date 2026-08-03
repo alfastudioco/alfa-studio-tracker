@@ -2314,7 +2314,7 @@ function App(){
   const done    = entries.filter(e=>e.end);
   const active  = entries.filter(e=>!e.end);
   const totalMs = done.reduce((s,e)=>s+(e.end-e.start),0);
-  const activeProjs = projs.filter(p=>p.status!=="Completed");
+  const activeProjs = projs.filter(p=>p.status==="In Progress");
   const activeEmps = emps.filter(e=>!e.archived);
   const archivedEmps = emps.filter(e=>e.archived);
 

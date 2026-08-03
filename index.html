@@ -2683,7 +2683,7 @@ function App(){
                   h("span",{style:{fontSize:11,color:cc,opacity:0.35,marginLeft:4}},"⠿")
                 ),
                 // Projects nested inside
-                h("div",{style:{padding:"8px 8px 4px",background:T.bg}},
+                expandClient!==clientName&&h("div",{style:{padding:"8px 8px 4px",background:T.bg}},
                   ...(()=>{
                     const sorted=[...clientProjs].sort((a,b)=>{
                       const ja=a.jobName||""; const jb=b.jobName||"";
@@ -2904,7 +2904,7 @@ function App(){
                     });
                     return els;
                   })()
-                ) // close projects padding div
+                ) // close projects padding div (conditional)
           ) // close group card
           ]; // close inner array
             }); // close flatMap

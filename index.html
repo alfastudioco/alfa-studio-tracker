@@ -2871,6 +2871,27 @@ function App(){
                         );
                       })()
                     ),
+                    // 2-row quick action grid
+                    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderTop:"1px solid "+T.line}},
+                      [
+                        {icon:"📷",label:"Photo",   fn:e=>{e.stopPropagation();setAddPhotoSheet(proj.id);}},
+                        {icon:"📝",label:"Note",    fn:e=>{e.stopPropagation();setQuickNote("");setAddNoteSheet(proj.id);}},
+                        {icon:"🎨",label:"Selects", fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"selections"});}},
+                        {icon:"📁",label:"Files",   fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"files"});}},
+                        {icon:"⏱", label:"Time",    fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"timelog"});}},
+                        {icon:"💰",label:"Costs",   fn:e=>{e.stopPropagation();setCogsSheet(proj.id);}},
+                        {icon:"💳",label:"Pay",     fn:e=>{e.stopPropagation();setQuickSheet({projId:proj.id,section:"payments"});}},
+                        {icon:"📋",label:"Log",     fn:e=>{e.stopPropagation();setLf({empId:"",projId:String(proj.id),hours:"",date:new Date().toISOString().slice(0,10)});setLogSheet({});}},
+                      ].map(({icon,label,fn},i)=>
+                        h("button",{key:label,onClick:fn,
+                          style:{padding:"7px 4px",fontSize:9,fontWeight:500,color:T.sub,background:T.surf,border:"none",
+                            borderRight:(i+1)%4===0?"none":"1px solid "+T.line,
+                            borderTop:i>=4?"1px solid "+T.line:"none",
+                            cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:2}},
+                          h("span",{style:{fontSize:11}},icon),label
+                        )
+                      )
+                    ),
                     isExp&&h(ProjectExpanded,{
                       proj,emps,done,active,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,
                       activeFor,clockIn,clockOut,fmtHrs,fmtTime,fmtCost,

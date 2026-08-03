@@ -138,10 +138,10 @@ function load(key, fallback) {
 
 //  -- Default data -------------------------------------------
 const DEFAULT_EMPS = [
-  {id:1,name:"Misha", role:"Master Carpenter",color:"#D97706",rate:0},
-  {id:2,name:"Tolik", role:"Finisher",        color:"#2563EB",rate:0},
-  {id:3,name:"Maksym",role:"Assembler",       color:"#16A34A",rate:0},
-  {id:4,name:"Vitya", role:"CNC Operator",    color:"#9333EA",rate:0},
+  {id:1,name:"Misha", role:"Master Carpenter",color:"#D97706",rate:28},
+  {id:2,name:"Tolik", role:"Finisher",        color:"#2563EB",rate:30},
+  {id:3,name:"Maksym",role:"Assembler",       color:"#16A34A",rate:22},
+  {id:4,name:"Vitya", role:"CNC Operator",    color:"#9333EA",rate:22},
 ];
 const DEFAULT_PROJS = [
   {id:1,name:"Yura Keystone",client:"",status:"In Progress",deadline:"",assignedTo:[1,2]},
@@ -2112,16 +2112,15 @@ function App(){
         ]);
         // Always prefer Supabase data; fall back to localStorage if Supabase returns nothing
         if(e&&e.length>0){
-          const localEmps=load("alfa_emps",[]);
-          const merged=e.map(sb=>{ const l=localEmps.find(x=>x.id===sb.id); return (l&&+l.rate>0&&!(+sb.rate>0))?{...sb,rate:l.rate}:sb; });
+          // If Supabase has rate=0, use DEFAULT_EMPS rate as fallback
+          const merged=e.map(sb=>{ const def=DEFAULT_EMPS.find(x=>x.id===sb.id); return (!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb; });
           setEmps(merged);
-          // Push merged rates back to Supabase so they persist
+          // Push correct rates to Supabase if any were 0
           const needsUpdate=merged.some((m,i)=>m.rate!==(e[i]&&e[i].rate));
           if(needsUpdate) dbSave("employees",merged);
         } else {
-          const local=load("alfa_emps",DEFAULT_EMPS);
-          setEmps(local);
-          if(local.some(e=>e.rate>0)) dbSave("employees",local);
+          setEmps(DEFAULT_EMPS);
+          dbSave("employees",DEFAULT_EMPS);
         }
         setProjs(p&&p.length>0 ? p : load("alfa_projs", DEFAULT_PROJS));
         setEntries(en&&en.length>0 ? en : load("alfa_entries", []));

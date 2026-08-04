@@ -2349,6 +2349,55 @@ function App(){
       setTimeout(()=>setToast(null),2800);
     }
   }
+  async function migrateLocalFiles() {
+    setSyncing(true);
+    try {
+      const pd = JSON.parse(localStorage.getItem("alfa_projdetails")||"{}");
+      let done=0, failed=0;
+      for(const projId in pd) {
+        const files = pd[projId].files||[];
+        let changed = false;
+        for(let i=0;i<files.length;i++) {
+          const f = files[i];
+          if(f.url||!f.data) continue;
+          try {
+            const parts = f.data.split(",");
+            const mime = parts[0].match(/:(.*?);/)[1];
+            const bin = atob(parts[1]);
+            const bytes = new Uint8Array(bin.length);
+            for(let j=0;j<bin.length;j++) bytes[j]=bin.charCodeAt(j);
+            const blob = new Blob([bytes],{type:mime});
+            const ext = f.name.split(".").pop().toLowerCase();
+            const path = "proj-"+projId+"/migrate-"+Date.now()+"-"+Math.random().toString(36).slice(2)+"."+ext;
+            const r = await fetch(SB_STORAGE_URL+"/object/project-files/"+path,{
+              method:"POST",
+              headers:{...SB_HEADERS,"Content-Type":mime,"x-upsert":"true"},
+              body:blob
+            });
+            if(r.ok){
+              const url = SB_STORAGE_URL+"/object/public/project-files/"+path;
+              files[i]={id:f.id,name:f.name,type:mime,url,path,date:f.date||new Date().toISOString().slice(0,10)};
+              changed=true; done++;
+            } else { failed++; }
+          } catch(e){ failed++; }
+        }
+        if(changed){
+          pd[projId].files=files;
+          const cleanFiles=files.map(f=>({id:f.id,name:f.name,type:f.type,url:f.url,path:f.path,date:f.date})).filter(f=>f.url);
+          const rowData={...pd[projId],files:cleanFiles};
+          await fetch(SB_URL+"/rest/v1/projdetails",{method:"POST",
+            headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},
+            body:JSON.stringify([{id:String(projId),data:rowData}])
+          });
+          setProjDetails(p=>({...p,[String(projId)]:{...p[String(projId)],...rowData}}));
+        }
+      }
+      localStorage.setItem("alfa_projdetails",JSON.stringify(pd));
+      alert("Done! "+done+" files uploaded"+(failed>0?", "+failed+" failed":""));
+    } catch(err){ alert("Error: "+err.message); }
+    setSyncing(false);
+  }
+
   async function manualSync() {
     setSyncing(true);
     try {
@@ -2437,7 +2486,10 @@ function App(){
           h("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:1}},
             h("div",{style:{fontSize:9,color:dbReady?T.green:T.amber,letterSpacing:"0.12em",textTransform:"uppercase"}},dbReady?"✦ LIVE":"⟳ CONNECTING…"),
             currentUser&&h("div",{style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",letterSpacing:"0.04em"}},currentUser.name),
-            mode==="admin"&&h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer",letterSpacing:"0.06em"}},syncing?"syncing…":"↑ sync")
+            mode==="admin"&&h("div",{style:{display:"flex",gap:4,alignItems:"center"}},
+  h("button",{onClick:migrateLocalFiles,disabled:syncing,style:{fontSize:9,color:T.blue,background:T.blue+"12",border:"1px solid "+T.blue+"33",borderRadius:4,padding:"1px 6px",cursor:"pointer"}},syncing?"uploading…":"⬆ migrate"),
+  h("button",{onClick:manualSync,style:{fontSize:9,color:T.sub,background:T.faint,border:"1px solid "+T.border,borderRadius:4,padding:"1px 6px",cursor:"pointer"}},syncing?"syncing…":"↑ sync")
+)
           )
         )
       ),

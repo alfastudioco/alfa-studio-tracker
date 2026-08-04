@@ -2146,8 +2146,15 @@ function App(){
         }
         if(pd&&pd.length>0){
           const obj={};
-          pd.forEach(i=>{ const key=String(i.projId||i.id); obj[key]={...i,files:i.files||[]}; });
-          setProjDetails(obj);
+          // dbLoad returns row.data — but we also need the row id
+          // Re-fetch with full row to get the id
+          const rawRows = await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
+          rawRows.forEach(row=>{
+            const key=String(row.id);
+            const data=row.data||{};
+            obj[key]={...data,files:data.files||[]};
+          });
+          if(Object.keys(obj).length>0) setProjDetails(obj);
         }
         if(pr&&pr.length>0){
           try {
@@ -2170,6 +2177,34 @@ function App(){
       setDbLoading(false);
     })();
   },[]);
+
+  // 30-second poll — sync ALL tables across all devices
+  useEffect(()=>{
+    if(!dbReady) return;
+    const poll = setInterval(async()=>{
+      try {
+        const [e,p,en,cg,cl,vn,pn,pp,co] = await Promise.all([
+          dbLoad("employees"), dbLoad("projects"), dbLoad("entries"),
+          dbLoad("cogs"), dbLoad("clients"), dbLoad("vendors"),
+          dbLoad("projnotes"), dbLoad("projpayments"), dbLoad("clientorder")
+        ]);
+        if(e&&e.length>0) setEmps(e.map(sb=>{ const def=DEFAULT_EMPS.find(x=>x.id===sb.id); return (!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb; }));
+        if(p&&p.length>0) setProjs(p);
+        if(en&&en.length>0) setEntries(en);
+        if(cg&&cg.length>0){ const obj={}; cg.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setCogs(obj); }
+        if(cl&&cl.length>0) setClients(cl);
+        if(vn&&vn.length>0) setVendors(vn);
+        if(pn&&pn.length>0){ const obj={}; pn.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjNotes(obj); }
+        if(pp&&pp.length>0){ const obj={}; pp.forEach(i=>{ if(!obj[i.projId])obj[i.projId]=[]; obj[i.projId].push(i); }); setProjPayments(obj); }
+        if(co&&co.length>0) setClientOrder(co.map(i=>i.name));
+        // projdetails — fetch raw rows to use row id as key
+        const pdRows=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
+        if(pdRows.length>0){ const obj={}; pdRows.forEach(row=>{ const key=String(row.id); const data=row.data||{}; obj[key]={...data,files:data.files||[]}; }); setProjDetails(obj); }
+      } catch(err) { /* silent */ }
+    }, 30000);
+    return ()=>clearInterval(poll);
+  }, [dbReady]);
+
   const [mode,setMode]       = useState("worker");
   const [currentUser,setCurrentUser] = useState(null);
   const [clientOrder,setClientOrder]   = useState([]);
@@ -2295,7 +2330,15 @@ function App(){
       setClients(p=>[...p,...missingNames.map(n=>({id:nameId(n.toLowerCase().trim()),name:n.trim(),phone:"",email:"",address:"",notes:""}))]);
     }
   },[projs]);
-  useEffect(()=>{ try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{} },[projDetails]);
+  useEffect(()=>{
+    try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
+    if(!dbReady||Object.keys(projDetails).length===0) return;
+    const flat=Object.entries(projDetails).map(([projId,data])=>{
+      const files=(data.files||[]).map(f=>f.url?{id:f.id,name:f.name,type:f.type,url:f.url,path:f.path,date:f.date}:f);
+      return {id:String(projId),data:{...data,files,projId:+projId}};
+    });
+    dbSave("projdetails",flat.map(r=>r.data));
+  },[projDetails]);
   useEffect(()=>{
     if(!dbReady||proposals.length===0) return;
     const flat=proposals.map(p=>{ const {generatedHtml,...rest}=p; return rest; });
@@ -2384,7 +2427,7 @@ function App(){
         if(changed){
           pd[projId].files=files;
           const cleanFiles=files.map(f=>({id:f.id,name:f.name,type:f.type,url:f.url,path:f.path,date:f.date})).filter(f=>f.url);
-          const rowData={...pd[projId],files:cleanFiles};
+          const rowData={...pd[projId],files:cleanFiles,projId:+projId};
           await fetch(SB_URL+"/rest/v1/projdetails",{method:"POST",
             headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},
             body:JSON.stringify([{id:String(projId),data:rowData}])

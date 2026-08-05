@@ -2713,7 +2713,7 @@ function VendorsTabNew({vendors,setVendors,cogs,fmtCost,T}) {
         h("tbody",null,
           vendors.length===0&&h("tr",null,h("td",{colSpan:6,style:{textAlign:"center",padding:"40px",color:DIM}},"No vendors yet.")),
           vendors.map(v=>{
-            const spent=Object.values(cogs).flat().filter(c=>c.vendorId===v.id).reduce((s,c)=>s+(+c.amount||0),0);
+            const spent=Object.values(cogs).flat().filter(c=>(c.vendor||"").trim().toLowerCase()===v.name.trim().toLowerCase()).reduce((s,c)=>s+(+c.amount||0),0);
             const isEdit=editId===v.id;
             const d=draft[v.id]||{name:v.name,category:v.category||"",contact:v.contact||"",phone:v.phone||""};
             return h("tr",{key:v.id},

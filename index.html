@@ -653,84 +653,11 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
         setScanPreview("data:image/jpeg;base64," + base64);
       }
 
-      // Call Claude API to extract invoice data
-      const _p = ["sk-ant-","api03-lseec4PTi7dp","BIK1iN3rrsrlEfqKXW3","c0X0_RcPYM8zL56LJTs","W05lb-lMIwuU2GAmqUs","8Gz2qtSgCDzeb164w-2","_u9LQAA"].join("");
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": _p,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 500,
-          messages: [{
-            role: "user",
-            content: [
-              {type:"image", source:{type:"base64", media_type:mediaType, data:base64}},
-              {type:"text", text:"Extract from this vendor invoice and return ONLY valid JSON with keys: vendor, amount (number), date (YYYY-MM-DD), description (max 60 chars), invoiceNo (invoice/reference number as string). Use null for missing fields."}
-            ]
-          }]
-        })
-      });
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error("Claude API error:", response.status, errText);
-        throw new Error("API error "+response.status+": "+errText.slice(0,120));
-      }
-      const data = await response.json();
-      console.log("Claude response:", data);
-      const text = data.content && data.content[0] && data.content[0].text;
-      if (!text) throw new Error("No response from AI. Full response: "+JSON.stringify(data));
-      let parsed;
-      try { parsed = JSON.parse(text.replace(/```json|```/g,"").trim()); }
-      catch(pe) { throw new Error("Could not parse AI response: "+text.slice(0,100)); }
-
-      // Check for duplicate invoice number across all cogs entries
-      if (parsed.invoiceNo) {
-        const invLow = parsed.invoiceNo.toLowerCase().trim();
-        const allItems = Object.values(cogs).flat();
-        const dup = allItems.find(i => i.invoiceNo && i.invoiceNo.toLowerCase().trim()===invLow);
-        if (dup) {
-          setScanError("⚠ Invoice #"+parsed.invoiceNo+" already exists. Duplicate blocked.");
-          setScanning(false);
-          return;
-        }
-      }
-
-      // Pre-fill form with extracted data
-      // Match vendor name against existing vendors (partial match)
-      let vendorName = parsed.vendor||"";
-      if(vendorName) {
-        const vLow = vendorName.toLowerCase().trim();
-        const match = vendors.find(v=>{ const eLow=v.name.toLowerCase().trim(); return eLow===vLow||eLow.includes(vLow)||vLow.includes(eLow); });
-        if(match) vendorName = match.name;
-      }
-      setForm(f => ({
-        ...f,
-        vendor:    vendorName         || f.vendor,
-        amount:    parsed.amount      ? String(parsed.amount) : f.amount,
-        date:      parsed.date        || f.date,
-        desc:      parsed.description || f.desc,
-        invoiceNo: parsed.invoiceNo   || f.invoiceNo,
-      }));
-
-      // Auto-add vendor if new — use partial match to avoid duplicates
-      if (parsed.vendor) {
-        const vLow = parsed.vendor.toLowerCase().trim();
-        const existing = vendors.find(v=>{
-          const eLow = v.name.toLowerCase().trim();
-          return eLow===vLow || eLow.includes(vLow) || vLow.includes(eLow);
-        });
-        if (!existing) {
-          onAddVendor && onAddVendor(parsed.vendor.trim());
-        } else {
-          // Use the existing vendor name in the form instead of AI-returned name
-          setForm(f=>({...f, vendor: existing.name}));
-        }
-      }
+      // Auto-scan is disabled: it previously called the Claude API directly from
+      // the browser with a hardcoded key, which exposed that key to anyone loading
+      // this (public) site. Re-enabling this needs a backend proxy that holds the
+      // key server-side instead of shipping it to the client.
+      throw new Error("Auto-scan is temporarily disabled");
     } catch(err) {
       setScanError("Could not read: "+(err.message||"unknown error")+". Please fill in manually.");
       console.error("Invoice scan error:", err);
@@ -748,7 +675,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
   function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
-    const item = {id:editId||Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
+    const item = {id:editId||Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
     setCogs(p=>({...p,[projId]: editId
       ? (p[projId]||[]).map(i=>i.id===editId?item:i)
       : [...(p[projId]||[]), item]
@@ -1116,6 +1043,7 @@ function NotesLog({projId, projNotes, setProjNotes, currentUser, T, line, faint}
     if(!t) return;
     const note = {
       id: Date.now(),
+      projId,
       text: t,
       ts: new Date().toISOString(),
       author: currentUser?.name || "Admin"
@@ -1200,7 +1128,7 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
 
   function save() {
     if(!form.amount||!+form.amount) return;
-    const pmt = {id:Date.now(), amount:+form.amount, type:form.type, date:form.date, note:form.note};
+    const pmt = {id:Date.now(), projId, amount:+form.amount, type:form.type, date:form.date, note:form.note};
     setProjPayments(p=>({...p,[projId]:[...(p[projId]||[]),pmt]}));
     setForm({amount:"",type:"Deposit",date:new Date().toISOString().slice(0,10),note:""});
     setAdding(false);
@@ -1662,26 +1590,11 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
         };
         img.onerror=rej; img.src=url;
       });
-      const _p=["sk-ant-","api03-lseec4PTi7dp","BIK1iN3rrsrlEfqKXW3","c0X0_RcPYM8zL56LJTs","W05lb-lMIwuU2GAmqUs","8Gz2qtSgCDzeb164w-2","_u9LQAA"].join("");
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","x-api-key":_p,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,messages:[{role:"user",content:[
-          {type:"image",source:{type:"base64",media_type:"image/jpeg",data:compressed}},
-          {type:"text",text:"Extract from this receipt and return ONLY valid JSON with keys: vendor, amount (number), date (YYYY-MM-DD), description (max 60 chars), invoiceNo. Use null for missing."}
-        ]}]})
-      });
-      const data = await resp.json();
-      const text = data.content?.[0]?.text;
-      if(!text) throw new Error("No response");
-      const parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
-      setForm(f=>({...f,
-        vendor: parsed.vendor||f.vendor,
-        amount: parsed.amount?String(parsed.amount):f.amount,
-        date:   parsed.date||f.date,
-        desc:   parsed.description||f.desc,
-        invoiceNo: parsed.invoiceNo||f.invoiceNo,
-      }));
+      // Auto-scan is disabled: it previously called the Claude API directly from
+      // the browser with a hardcoded key, which exposed that key to anyone loading
+      // this (public) site. Re-enabling this needs a backend proxy that holds the
+      // key server-side instead of shipping it to the client.
+      throw new Error("disabled");
     } catch(err) {
       setScanError("Could not read receipt — fill in manually.");
     }
@@ -1691,7 +1604,7 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
 
   function save() {
     if(!form.amount||!+form.amount) return;
-    const item = {id:Date.now(), desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", uploadedBy:empName};
+    const item = {id:Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", uploadedBy:empName};
     setCogs(p=>({...p,[projId]:[...(p[projId]||[]),item]}));
     setSaved(true);
     setTimeout(onClose, 1200);
@@ -1886,6 +1799,82 @@ function ConfirmDialog({msg, onConfirm, onCancel}) {
 }
 
 // ─── PROJECTS TAB ────────────────────────────────────────────────────────────
+//  -- RecoveryPanel (one-time triage for records orphaned by the missing-projId bug) --
+function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose}) {
+  const orphanPmts  = projPayments["undefined"]||[];
+  const orphanNotes = projNotes["undefined"]||[];
+  const projOptions = [...projs].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const selStyle = {flex:1,fontSize:12,padding:"5px 8px",borderRadius:6,border:"1px solid #E5E2DC",background:"#FFF"};
+  const discardStyle = {fontSize:11,color:"#DC2626",background:"none",border:"none",cursor:"pointer",flexShrink:0};
+
+  function assignPayment(pmt, projId) {
+    if(!projId) return;
+    setProjPayments(p=>({...p,
+      "undefined": (p["undefined"]||[]).filter(x=>x.id!==pmt.id),
+      [projId]: [...(p[projId]||[]), {...pmt, projId:+projId}]
+    }));
+  }
+  function discardPayment(id) {
+    setProjPayments(p=>({...p, "undefined": (p["undefined"]||[]).filter(x=>x.id!==id)}));
+  }
+  function assignNote(note, projId) {
+    if(!projId) return;
+    setProjNotes(p=>({...p,
+      "undefined": (p["undefined"]||[]).filter(x=>x.id!==note.id),
+      [projId]: [...(p[projId]||[]), {...note, projId:+projId}]
+    }));
+  }
+  function discardNote(id) {
+    setProjNotes(p=>({...p, "undefined": (p["undefined"]||[]).filter(x=>x.id!==id)}));
+  }
+
+  return h("div",{className:"sheet-bg",onClick:onClose},
+    h("div",{className:"sheet",onClick:e=>e.stopPropagation(),style:{maxWidth:640,padding:"0 16px 16px"}},
+      h("div",{className:"sheet-handle"}),
+      h("div",{style:{fontSize:16,fontWeight:700,margin:"14px 0 4px"}},"Recover Unassigned Records"),
+      h("div",{style:{fontSize:12,color:"#78716C",marginBottom:14}},
+        "A bug briefly saved these without a project link. Pick the correct project for each, or discard if it was a duplicate/test entry."),
+
+      orphanPmts.length===0&&orphanNotes.length===0&&h("div",{style:{fontSize:13,color:"#78716C",padding:"24px 0",textAlign:"center"}},"Nothing left to recover."),
+
+      orphanPmts.length>0&&h("div",null,
+        h("div",{style:{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#A8A29E",margin:"10px 0 6px"}},"Payments ("+orphanPmts.length+")"),
+        orphanPmts.map(pmt=>
+          h("div",{key:"p"+pmt.id,style:{display:"flex",gap:8,alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F0EDE8"}},
+            h("div",{style:{flex:"0 0 90px",fontSize:13,fontWeight:700,color:"#16A34A"}},fmtCost(+pmt.amount)),
+            h("div",{style:{flex:"0 0 130px",fontSize:11,color:"#78716C"}},pmt.type+" · "+pmt.date),
+            h("select",{style:selStyle,value:"",onChange:e=>assignPayment(pmt,e.target.value)},
+              h("option",{value:""},"Assign to project…"),
+              projOptions.map(pr=>h("option",{key:pr.id,value:pr.id},pr.name+(pr.client?" — "+pr.client:"")))
+            ),
+            h("button",{onClick:()=>discardPayment(pmt.id),style:discardStyle},"Discard")
+          )
+        )
+      ),
+
+      orphanNotes.length>0&&h("div",null,
+        h("div",{style:{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#A8A29E",margin:"16px 0 6px"}},"Notes ("+orphanNotes.length+")"),
+        orphanNotes.map(note=>
+          h("div",{key:"n"+note.id,style:{padding:"8px 0",borderBottom:"1px solid #F0EDE8"}},
+            h("div",{style:{fontSize:12,color:"#1C1917",whiteSpace:"pre-wrap",marginBottom:6}},note.text),
+            h("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+              h("select",{style:selStyle,value:"",onChange:e=>assignNote(note,e.target.value)},
+                h("option",{value:""},"Assign to project…"),
+                projOptions.map(pr=>h("option",{key:pr.id,value:pr.id},pr.name+(pr.client?" — "+pr.client:"")))
+              ),
+              h("button",{onClick:()=>discardNote(note.id),style:discardStyle},"Discard")
+            )
+          )
+        )
+      ),
+
+      h("div",{style:{marginTop:16,textAlign:"right"}},
+        h("button",{onClick:onClose,style:{borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,background:"#1C1917",color:"#FFF",border:"none",cursor:"pointer"}},"Done")
+      )
+    )
+  );
+}
+
 function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setProjDetails,
   projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,
   fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}) {
@@ -1902,6 +1891,9 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
   const [cogsSheet,setCogsSheet]   = useState(null);
   const [confirmDel,setConfirmDel] = useState(null);
   const [uploading,setUploading]   = useState(false);
+  const [showRecovery,setShowRecovery] = useState(false);
+
+  const orphanCount = (projPayments["undefined"]||[]).length + (projNotes["undefined"]||[]).length;
 
   const clientNames = [...new Set(projs.map(p=>p.client).filter(Boolean))].sort();
   const jobNames    = [...new Set(projs.map(p=>p.jobName).filter(Boolean))].sort();
@@ -1992,7 +1984,9 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
           s==="All"?"All ("+projs.length+")":s+(statusCounts[s]?" ("+statusCounts[s]+")":"")
         ))
       ),
-      h("button",{className:"btn-primary",onClick:()=>openEdit("new")},"+ Project")
+      h("button",{className:"btn-primary",onClick:()=>openEdit("new")},"+ Project"),
+      orphanCount>0&&h("button",{onClick:()=>setShowRecovery(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",whiteSpace:"nowrap"}},
+        "⚠ "+orphanCount+" Unassigned — Recover")
     ),
 
     // Table
@@ -2223,7 +2217,10 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
       cogs,setCogs,vendors:[],onClose:()=>setCogsSheet(null),onBudgetChange:()=>{},onAddVendor:()=>{}}),
 
     // ── Confirm delete ──
-    confirmDel&&h(ConfirmDialog,{msg:"Delete "+confirmDel.name+"?",onConfirm:()=>delProj(confirmDel.id),onCancel:()=>setConfirmDel(null)})
+    confirmDel&&h(ConfirmDialog,{msg:"Delete "+confirmDel.name+"?",onConfirm:()=>delProj(confirmDel.id),onCancel:()=>setConfirmDel(null)}),
+
+    // ── Recovery panel ──
+    showRecovery&&h(RecoveryPanel,{projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose:()=>setShowRecovery(false)})
   );
 }
 

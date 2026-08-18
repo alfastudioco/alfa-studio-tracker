@@ -55,8 +55,8 @@ button{cursor:pointer}
 .ftab{padding:6px 12px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;border:none;background:transparent;color:#888;white-space:nowrap}
 .ftab.active{background:#1a1e2e;color:#fff}
 /* Sheet overlay */
-.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:998;display:flex;align-items:flex-end;justify-content:center}
-.sheet{background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;padding-bottom:env(safe-area-inset-bottom)}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:998;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+.sheet{background:#fff;border-radius:16px;width:100%;max-width:700px;max-height:85vh;overflow-y:auto;box-shadow:0 12px 48px rgba(0,0,0,0.25)}
 .sheet-handle{width:36px;height:4px;background:#ddd;border-radius:2px;margin:12px auto 0}
 /* Form fields */
 .field{margin-bottom:12px}
@@ -2021,14 +2021,19 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Projects"),h("div",{className:"val"},projs.length))
     ),
 
-    // Per-status sale-value totals
+    // Per-status sale-value and outstanding-balance totals
     h("div",{className:"stat-grid",style:{marginTop:-6}},
       STATUSES.map(s=>{
         const list=allProjs.filter(p=>p.status===s);
         const sale=list.reduce((sum,p)=>sum+(+p.salePrice||0),0);
+        const owing=list.reduce((sum,p)=>{
+          const paid=(projPayments[p.id]||[]).reduce((a,x)=>a+(+x.amount||0),0);
+          return sum+Math.max(0,(+p.salePrice||0)-paid);
+        },0);
         return h("div",{key:s,className:"stat-card"},
           h("div",{className:"lbl"},s),
           h("div",{className:"val"},"$"+sale.toLocaleString()),
+          h("div",{style:{fontSize:12,fontWeight:600,color:owing>0?"#c0392b":"#2d7a4f",marginTop:3}},"$"+owing.toLocaleString()+" owing"),
           h("div",{style:{fontSize:10,color:"#999",marginTop:2}},list.length+" project"+(list.length!==1?"s":""))
         );
       })

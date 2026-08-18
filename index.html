@@ -2888,7 +2888,14 @@ function App() {
   const [pinInput,setPinInput] = useState("");
   const [pinError,setPinError] = useState("");
   const [toast,setToast]       = useState(null);
-  const [activeFor,setActiveFor] = useState({});
+  // Who's currently clocked in is derived from entries (synced with Supabase),
+  // not tracked as separate local state - otherwise a second device (or the
+  // same device after a reload) has no way to know someone's already on the
+  // clock, and clocking them in again there creates a duplicate open entry
+  // that can never be closed through the UI again (silently dropping that
+  // block of hours from labor cost, since only entries with an `end` count).
+  const activeFor = {};
+  entries.forEach(e=>{ if(e.end==null) activeFor[e.empId]={projId:e.projId,start:e.start,entryId:e.id}; });
   const [now2,setNow2]         = useState(Date.now());
   const isFirstRender = useRef({emps:true,projs:true,entries:true});
 
@@ -2990,9 +2997,13 @@ function App() {
   },[proposals]);
 
   function clockIn(empId,projId){
+    if(entries.some(e=>e.empId===empId&&e.end==null)){
+      setToast({msg:"Already clocked in"});
+      setTimeout(()=>setToast(null),2800);
+      return;
+    }
     const entry={id:Date.now(),empId,projId,start:Date.now(),end:null};
     setEntries(p=>[...p,entry]);
-    setActiveFor(a=>({...a,[empId]:{projId,start:entry.start,entryId:entry.id}}));
     const emp=emps.find(e=>e.id===empId);const proj=projs.find(p=>p.id===projId);
     setToast({msg:"+ "+emp?.name+" clocked in - "+proj?.name});
     setTimeout(()=>setToast(null),2800);
@@ -3000,7 +3011,6 @@ function App() {
   function clockOut(empId){
     const a=activeFor[empId];if(!a)return;
     setEntries(p=>p.map(e=>e.id===a.entryId?{...e,end:Date.now()}:e));
-    setActiveFor(a=>{const n={...a};delete n[empId];return n;});
     const emp=emps.find(e=>e.id===empId);
     setToast({msg:"+ "+emp?.name+" clocked out"});
     setTimeout(()=>setToast(null),2800);

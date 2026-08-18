@@ -130,6 +130,27 @@ async function dbSave(table, items) {
   } catch(e) { console.error("dbSave error", table, e.message); }
 }
 
+// Like dbSave, but for callers that already know the correct row id per
+// item (e.g. projdetails, keyed by projId) — writes {id, data} pairs as-is
+// instead of guessing an id from item.id||item.name||idx, which silently
+// collides when two unrelated blobs don't carry a usable identifying field.
+async function dbSaveKeyed(table, rows) {
+  try {
+    if (!rows || rows.length === 0) return;
+    const body = rows.map(r => ({ id: String(r.id), data: r.data }));
+    const r = await fetch(SB_URL+"/rest/v1/"+table, {
+      method: "POST",
+      mode: "cors",
+      headers: {...SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      console.error("dbSaveKeyed failed", table, r.status, txt);
+    }
+  } catch(e) { console.error("dbSaveKeyed error", table, e.message); }
+}
+
 async function dbDelete(table, keepIds) {
   try {
     if (!keepIds || keepIds.length === 0) return;
@@ -149,6 +170,33 @@ async function dbPushAll(emps, projs, entries) {
     dbDelete("projects",  projs.map(x=>String(x.id))),
     dbDelete("entries",   entries.map(x=>String(x.id))),
   ]);
+}
+
+//  -- Sync merge helpers ---------------------------------------------
+// The background poll re-fetches full tables every 30s. Naively replacing
+// local state with that response can wipe out an edit that hasn't finished
+// saving yet (e.g. a payment added a moment ago that the poll's read raced
+// ahead of) — it looks like the edit "didn't record." mergeById keeps any
+// local item the server response doesn't include, UNLESS that item's id is
+// old enough that its absence means it was actually deleted elsewhere.
+// Every id here is a Date.now() timestamp, so "recent" vs "stale" is just
+// id age — no separate bookkeeping needed.
+const MERGE_GRACE_MS = 60000;
+function mergeById(local, server) {
+  const serverIds = new Set(server.map(x=>String(x.id)));
+  const now = Date.now();
+  const pending = local.filter(x=>{
+    if(serverIds.has(String(x.id))) return false;
+    const createdAt = Number(x.id);
+    return Number.isFinite(createdAt) && (now-createdAt) < MERGE_GRACE_MS;
+  });
+  return [...pending, ...server];
+}
+function mergeGroupedById(localGrouped, serverFlat) {
+  const merged = mergeById(Object.values(localGrouped).flat(), serverFlat);
+  const obj = {};
+  merged.forEach(i=>{ if(!obj[i.projId]) obj[i.projId]=[]; obj[i.projId].push(i); });
+  return obj;
 }
 
 //  -- Constants ----------------------------------------------
@@ -1950,7 +1998,7 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
           const key=String(projId);
           const upd={...p,[key]:{...(p[key]||{}),files:[...((p[key]||{}).files||[]),nf]}};
           const pd=upd[key];
-          dbSave("projdetails",[{id:key,data:{...pd,projId:+projId,files:pd.files.map(f=>f.url?{...f,data:undefined}:f)}}]);
+          dbSaveKeyed("projdetails",[{id:key,data:{...pd,projId:+projId,files:pd.files.map(f=>f.url?{...f,data:undefined}:f)}}]);
           return upd;
         });
       } catch(err) { alert("Upload failed: "+err.message); }
@@ -2897,14 +2945,17 @@ function App() {
           dbLoad("cogs"),dbLoad("clients"),dbLoad("vendors"),
           dbLoad("projnotes"),dbLoad("projpayments"),dbLoad("clientorder")
         ]);
-        if(e&&e.length>0)setEmps(e.map(sb=>{const def=DEFAULT_EMPS.find(x=>x.id===sb.id);return(!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb;}));
-        if(p&&p.length>0)setProjs(p);
-        if(en&&en.length>0)setEntries(en);
-        if(cg&&cg.length>0){const obj={};cg.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setCogs(obj);}
-        if(cl&&cl.length>0)setClients(cl);
-        if(vn&&vn.length>0)setVendors(vn);
-        if(pn&&pn.length>0){const obj={};pn.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setProjNotes(obj);}
-        if(pp&&pp.length>0){const obj={};pp.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setProjPayments(obj);}
+        if(e&&e.length>0){
+          const fixed=e.map(sb=>{const def=DEFAULT_EMPS.find(x=>x.id===sb.id);return(!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb;});
+          setEmps(prev=>mergeById(prev,fixed));
+        }
+        if(p&&p.length>0)setProjs(prev=>mergeById(prev,p));
+        if(en&&en.length>0)setEntries(prev=>mergeById(prev,en));
+        if(cg&&cg.length>0)setCogs(prev=>mergeGroupedById(prev,cg));
+        if(cl&&cl.length>0)setClients(prev=>mergeById(prev,cl));
+        if(vn&&vn.length>0)setVendors(prev=>mergeById(prev,vn));
+        if(pn&&pn.length>0)setProjNotes(prev=>mergeGroupedById(prev,pn));
+        if(pp&&pp.length>0)setProjPayments(prev=>mergeGroupedById(prev,pp));
         if(co&&co.length>0)setClientOrder(co.map(i=>i.name));
         const pdR=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
         if(pdR.length>0){const obj={};pdR.forEach(row=>{const key=String(row.id);const data=row.data||{};obj[key]={...data,files:data.files||[]};});setProjDetails(obj);}
@@ -2928,7 +2979,7 @@ function App() {
       const files=(data.files||[]).map(f=>f.url?{id:f.id,name:f.name,type:f.type,url:f.url,path:f.path,date:f.date}:f);
       return {id:String(projId),data:{...data,files,projId:+projId}};
     });
-    dbSave("projdetails",flat.map(r=>r.data));
+    dbSaveKeyed("projdetails",flat);
     try{localStorage.setItem("alfa_projdetails",JSON.stringify(projDetails));}catch{}
   },[projDetails]);
   useEffect(()=>{
@@ -2984,7 +3035,7 @@ function App() {
         if(changed){
           pd[projId].files=files;
           const cleanF=files.map(f=>({id:f.id,name:f.name,type:f.type,url:f.url,path:f.path,date:f.date})).filter(f=>f.url);
-          await fetch(SB_URL+"/rest/v1/projdetails",{method:"POST",headers:{...SB_HEADERS,"Prefer":"resolution=merge-duplicates"},body:JSON.stringify([{id:String(projId),data:{...pd[projId],files:cleanF,projId:+projId}}])}).catch(()=>{});
+          await dbSaveKeyed("projdetails",[{id:String(projId),data:{...pd[projId],files:cleanF,projId:+projId}}]);
         }
       }
       localStorage.setItem("alfa_projdetails",JSON.stringify(pd));

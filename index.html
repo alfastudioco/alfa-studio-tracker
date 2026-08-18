@@ -2883,6 +2883,8 @@ function App() {
   const [dbLoading,setDbLoading] = useState(true);
   const [syncing,setSyncing]   = useState(false);
   const [mode,setMode]         = useState("worker");
+  const [workerEmpId,setWorkerEmpId] = useState(null);
+  const [workerProjSearch,setWorkerProjSearch] = useState("");
   const [currentUser,setCurrentUser] = useState(null);
   const [adminTab,setAdminTab] = useState("projects");
   const [pinInput,setPinInput] = useState("");
@@ -3070,34 +3072,77 @@ function App() {
       )
     ),
     h("div",{style:{padding:"16px",maxWidth:500,margin:"0 auto"}},
-      activeProjs.length===0
-        ? h("div",{style:{textAlign:"center",padding:"60px 0",color:DIM,fontSize:13}},"No active projects.")
-        : activeProjs.map(proj=>{
-          const crew=emps.filter(e=>(proj.assignedTo||[]).includes(e.id));
-          return h("div",{key:proj.id,style:{background:SURF,borderRadius:14,border:"0.5px solid "+LINE,marginBottom:12,overflow:"hidden"}},
-            h("div",{style:{padding:"14px 16px",borderBottom:"0.5px solid "+LINE}},
-              h("div",{style:{fontSize:14,fontWeight:600,color:NAVY}},proj.name),
-              proj.client&&h("div",{style:{fontSize:11,color:DIM,marginTop:1}},proj.client)
-            ),
-            h("div",{style:{padding:"12px 16px"}},
-              crew.map(emp=>{
-                const a=activeFor[emp.id];const isActive=a&&a.projId===proj.id;
-                const elapsed=isActive?now2-a.start:0;
-                const hh=Math.floor(elapsed/3600000),mm=Math.floor((elapsed%3600000)/60000),ss=Math.floor((elapsed%60000)/1000);
-                return h("div",{key:emp.id,style:{display:"flex",alignItems:"center",gap:12,marginBottom:8}},
-                  h("div",{style:{width:36,height:36,borderRadius:"50%",background:emp.color+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:emp.color,flexShrink:0}},(emp.name||"?")[0].toUpperCase()),
-                  h("div",{style:{flex:1}},
-                    h("div",{style:{fontSize:13,fontWeight:500,color:NAVY}},emp.name),
-                    isActive&&h("div",{style:{fontSize:11,fontWeight:600,color:GOLD,fontVariantNumeric:"tabular-nums"}},String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0")+":"+String(ss).padStart(2,"0"))
-                  ),
-                  h("button",{onClick:()=>isActive?clockOut(emp.id):clockIn(emp.id,proj.id),
-                    style:{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
-                      background:isActive?"#ffebeb":"#fff8e6",color:isActive?"#c0392b":NAVY}},isActive?"Clock Out":"Clock In")
-                );
-              })
+      (()=>{
+        const selEmp = workerEmpId!=null ? emps.find(e=>e.id===workerEmpId) : null;
+
+        // Screen 1: pick who you are.
+        if(!selEmp) return h("div",null,
+          h("div",{style:{fontSize:12,fontWeight:600,color:DIM,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12,textAlign:"center"}},"Who are you?"),
+          emps.length===0
+            ? h("div",{style:{textAlign:"center",padding:"60px 0",color:DIM,fontSize:13}},"No crew set up yet.")
+            : h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:12}},
+                emps.map(emp=>{
+                  const a=activeFor[emp.id];
+                  const activeProj=a?projs.find(p=>p.id===a.projId):null;
+                  return h("button",{key:emp.id,onClick:()=>setWorkerEmpId(emp.id),
+                    style:{background:SURF,border:"0.5px solid "+LINE,borderRadius:14,padding:"18px 10px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:8}},
+                    h("div",{style:{width:52,height:52,borderRadius:"50%",background:emp.color+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,fontWeight:700,color:emp.color}},(emp.name||"?")[0].toUpperCase()),
+                    h("div",{style:{fontSize:13,fontWeight:600,color:NAVY}},emp.name),
+                    a
+                      ? h("div",{style:{fontSize:10,fontWeight:600,color:GOLD,textAlign:"center"}},"● "+(activeProj?activeProj.name:"Clocked in"))
+                      : h("div",{style:{fontSize:10,color:DIM}},"Not clocked in")
+                  );
+                })
+              )
+        );
+
+        // Screen 2: this employee is already clocked in somewhere - offer to clock out.
+        const a=activeFor[selEmp.id];
+        const backBtn=h("button",{onClick:()=>{setWorkerEmpId(null);setWorkerProjSearch("");},
+          style:{background:"none",border:"none",color:DIM,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:14,padding:0}},"← Switch employee");
+
+        if(a){
+          const proj=projs.find(p=>p.id===a.projId);
+          const elapsed=now2-a.start;
+          const hh=Math.floor(elapsed/3600000),mm=Math.floor((elapsed%3600000)/60000),ss=Math.floor((elapsed%60000)/1000);
+          return h("div",null,
+            backBtn,
+            h("div",{style:{background:SURF,borderRadius:16,border:"0.5px solid "+LINE,padding:"28px 20px",textAlign:"center"}},
+              h("div",{style:{width:60,height:60,borderRadius:"50%",background:selEmp.color+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:700,color:selEmp.color,margin:"0 auto 12px"}},(selEmp.name||"?")[0].toUpperCase()),
+              h("div",{style:{fontSize:15,fontWeight:700,color:NAVY,marginBottom:2}},selEmp.name),
+              h("div",{style:{fontSize:13,color:DIM,marginBottom:14}},"Clocked into "+(proj?proj.name:"a project")),
+              h("div",{style:{fontSize:26,fontWeight:700,color:GOLD,fontVariantNumeric:"tabular-nums",marginBottom:20}},
+                String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0")+":"+String(ss).padStart(2,"0")),
+              h("button",{onClick:()=>clockOut(selEmp.id),
+                style:{padding:"12px 32px",borderRadius:24,fontSize:14,fontWeight:700,border:"none",cursor:"pointer",background:"#ffebeb",color:"#c0392b"}},"Clock Out")
             )
           );
-        })
+        }
+
+        // Screen 2: not currently clocked in - pick a project.
+        const q=workerProjSearch.trim().toLowerCase();
+        const assignedIds=new Set(activeProjs.filter(p=>(p.assignedTo||[]).includes(selEmp.id)).map(p=>p.id));
+        const list=activeProjs
+          .filter(p=>!q||p.name.toLowerCase().includes(q)||(p.client||"").toLowerCase().includes(q))
+          .sort((x,y)=>(assignedIds.has(y.id)-assignedIds.has(x.id))||x.name.localeCompare(y.name));
+
+        return h("div",null,
+          backBtn,
+          h("div",{style:{fontSize:13,fontWeight:600,color:NAVY,marginBottom:10}},selEmp.name+" — pick a project"),
+          h("input",{value:workerProjSearch,onChange:e=>setWorkerProjSearch(e.target.value),placeholder:"Search projects…",
+            style:{width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:10,border:"0.5px solid "+LINE,fontSize:13,marginBottom:12,outline:"none"}}),
+          list.length===0
+            ? h("div",{style:{textAlign:"center",padding:"40px 0",color:DIM,fontSize:13}},"No matching projects.")
+            : list.map(proj=>h("button",{key:proj.id,onClick:()=>clockIn(selEmp.id,proj.id),
+                style:{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,textAlign:"left",background:SURF,border:"0.5px solid "+LINE,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer"}},
+                h("div",null,
+                  h("div",{style:{fontSize:13,fontWeight:600,color:NAVY}},proj.name),
+                  proj.client&&h("div",{style:{fontSize:11,color:DIM,marginTop:1}},proj.client)
+                ),
+                h("span",{style:{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:600,background:"#fff8e6",color:NAVY,flexShrink:0}},"Clock In")
+              ))
+        );
+      })()
     ),
     toast&&h("div",{style:{position:"fixed",bottom:32,left:"50%",transform:"translateX(-50%)",background:NAVY,color:"#fff",borderRadius:12,padding:"10px 20px",fontSize:13,fontWeight:500,zIndex:200,whiteSpace:"nowrap"}},toast.msg)
   );

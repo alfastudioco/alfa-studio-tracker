@@ -1963,7 +1963,7 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
   const inProg      = allProjs.filter(p=>p.status==="In Progress").length;
 
   function openEdit(proj) {
-    if(proj==="new") { setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[],salePrice:"",notes:"",jobName:""}); setEditProj("new"); }
+    if(proj==="new") { setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:emps.filter(e=>e.active!==false).map(e=>e.id),salePrice:"",notes:"",jobName:""}); setEditProj("new"); }
     else { setPf({name:proj.name,client:proj.client,status:proj.status,deadline:proj.deadline||"",assignedTo:[...(proj.assignedTo||[])],salePrice:proj.salePrice||"",notes:proj.notes||"",jobName:proj.jobName||""}); setEditProj(proj); }
   }
 
@@ -2019,6 +2019,19 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Collected"),h("div",{className:"val green"},"$"+totalPaid.toLocaleString())),
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Outstanding"),h("div",{className:"val red"},"$"+totalOwing.toLocaleString())),
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Projects"),h("div",{className:"val"},projs.length))
+    ),
+
+    // Per-status sale-value totals
+    h("div",{className:"stat-grid",style:{marginTop:-6}},
+      STATUSES.map(s=>{
+        const list=allProjs.filter(p=>p.status===s);
+        const sale=list.reduce((sum,p)=>sum+(+p.salePrice||0),0);
+        return h("div",{key:s,className:"stat-card"},
+          h("div",{className:"lbl"},s),
+          h("div",{className:"val"},"$"+sale.toLocaleString()),
+          h("div",{style:{fontSize:10,color:"#999",marginTop:2}},list.length+" project"+(list.length!==1?"s":""))
+        );
+      })
     ),
 
     // Toolbar
@@ -2581,6 +2594,11 @@ function CrewTab({emps,setEmps,entries,fmtHrs,fmtCost,T}) {
     dbSave("employees",[updated]);
     setEditId(null);
   }
+  function toggleActive(emp) {
+    const updated={...emp,active:emp.active===false};
+    setEmps(p=>p.map(x=>x.id===emp.id?updated:x));
+    dbSave("employees",[updated]);
+  }
 
   return h("div",{style:{flex:1,overflowY:"auto",padding:"16px 20px",background:BG}},
     h("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},
@@ -2592,15 +2610,16 @@ function CrewTab({emps,setEmps,entries,fmtHrs,fmtCost,T}) {
     h("div",{style:{background:SURF,borderRadius:12,border:"0.5px solid "+LINE,overflow:"hidden"}},
       h("table",{className:"tbl"},
         h("thead",null,h("tr",null,
-          h("th",null,"Name"),h("th",null,"Role"),h("th",{className:"r"},"Rate / hr"),h("th",{className:"r"},"Total Hrs"),h("th",{className:"r"},"Total Earned"),h("th",null,"")
+          h("th",null,"Name"),h("th",null,"Role"),h("th",{className:"r"},"Rate / hr"),h("th",{className:"r"},"Total Hrs"),h("th",{className:"r"},"Total Earned"),h("th",null,"Status"),h("th",null,"")
         )),
         h("tbody",null,
           emps.map((emp,i)=>{
             const hrs=totalHrs[i];
             const earned=hrs/3600000*(emp.rate||0);
             const isEdit=editId===emp.id;
+            const isActive=emp.active!==false;
             const d=draft[emp.id]||{name:emp.name,role:emp.role,rate:String(emp.rate||0)};
-            return h("tr",{key:emp.id},
+            return h("tr",{key:emp.id,style:isActive?null:{opacity:0.5}},
               h("td",null, isEdit
                 ? h("input",{value:d.name||"",onChange:e=>setDraft({...draft,[emp.id]:{...d,name:e.target.value}}),style:{border:"0.5px solid "+GOLD,borderRadius:6,padding:"4px 8px",fontSize:12,outline:"none",width:120}})
                 : h("div",{style:{display:"flex",alignItems:"center",gap:8}},
@@ -2621,6 +2640,11 @@ function CrewTab({emps,setEmps,entries,fmtHrs,fmtCost,T}) {
               ),
               h("td",{className:"r",style:{fontSize:11,color:hrs>0?NAVY:DIM}},hrs>0?fmtHrs(hrs):"—"),
               h("td",{className:"r",style:{fontSize:11,fontWeight:earned>0?500:400,color:earned>0?GOLD:DIM}},earned>0?fmtCost(earned):"—"),
+              h("td",null,
+                h("button",{onClick:()=>toggleActive(emp),title:isActive?"Active - shows up to clock in":"Inactive - hidden from clock-in",
+                  style:{cursor:"pointer",border:"none",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:600,
+                    background:isActive?"#dcfce7":"#f1f5f9",color:isActive?"#166534":"#64748b"}},isActive?"Active":"Inactive")
+              ),
               h("td",null,
                 isEdit
                   ? h("div",{style:{display:"flex",gap:4}},
@@ -3069,13 +3093,14 @@ function App() {
         h("button",{onClick:()=>setMode("pin"),style:{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.5)",border:"none",borderRadius:6,padding:"5px 12px",fontSize:11,cursor:"pointer"}},"Admin")
       )
     ),
-    h("div",{style:{padding:"16px",maxWidth:500,margin:"0 auto"}},
-      emps.length===0
+    h("div",{style:{padding:16,maxWidth:1100,margin:"0 auto"}},
+      (()=>{ const activeEmps=emps.filter(e=>e.active!==false); return activeEmps.length===0
         ? h("div",{style:{textAlign:"center",padding:"60px 0",color:DIM,fontSize:13}},"No crew set up yet.")
-        : emps.map(emp=>{
+        : h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,alignItems:"start"}},
+          activeEmps.map(emp=>{
           const a=activeFor[emp.id];
           const myProjs=activeProjs.filter(p=>(p.assignedTo||[]).includes(emp.id));
-          return h("div",{key:emp.id,style:{background:SURF,borderRadius:14,border:"0.5px solid "+LINE,marginBottom:12,overflow:"hidden"}},
+          return h("div",{key:emp.id,style:{background:SURF,borderRadius:14,border:"0.5px solid "+LINE,overflow:"hidden"}},
             h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"14px 16px",borderBottom:"0.5px solid "+LINE}},
               h("div",{style:{width:32,height:32,borderRadius:"50%",background:emp.color+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:emp.color,flexShrink:0}},(emp.name||"?")[0].toUpperCase()),
               h("div",{style:{fontSize:14,fontWeight:600,color:NAVY}},emp.name)
@@ -3101,6 +3126,7 @@ function App() {
             )
           );
         })
+      );})()
     ),
     toast&&h("div",{style:{position:"fixed",bottom:32,left:"50%",transform:"translateX(-50%)",background:NAVY,color:"#fff",borderRadius:12,padding:"10px 20px",fontSize:13,fontWeight:500,zIndex:200,whiteSpace:"nowrap"}},toast.msg)
   );

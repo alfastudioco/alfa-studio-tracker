@@ -1961,6 +1961,8 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
   const totalPaid   = allProjs.reduce((s,p)=>{const pmts=(projPayments[p.id]||[]);return s+pmts.reduce((a,x)=>a+(+x.amount||0),0);},0);
   const totalOwing  = totalSale - totalPaid;
   const inProg      = allProjs.filter(p=>p.status==="In Progress").length;
+  function profitOf(p) { return (+p.salePrice||0) - entryCost(p.id) - projCogsTotals(p.id).total; }
+  const totalProfit = allProjs.reduce((s,p)=>s+profitOf(p),0);
 
   function openEdit(proj) {
     if(proj==="new") { setPf({name:"",client:"",status:"Not Started",deadline:"",assignedTo:emps.filter(e=>e.active!==false).map(e=>e.id),salePrice:"",notes:"",jobName:""}); setEditProj("new"); }
@@ -2018,10 +2020,11 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Sale"),h("div",{className:"val gold"},"$"+totalSale.toLocaleString())),
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Collected"),h("div",{className:"val green"},"$"+totalPaid.toLocaleString())),
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Outstanding"),h("div",{className:"val red"},"$"+totalOwing.toLocaleString())),
+      h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Profit"),h("div",{className:"val",style:{color:totalProfit>=0?"#2d7a4f":"#c0392b"}},(totalProfit<0?"-":"")+fmtCost(Math.abs(totalProfit)))),
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Projects"),h("div",{className:"val"},projs.length))
     ),
 
-    // Per-status sale-value and outstanding-balance totals
+    // Per-status sale-value, outstanding-balance, and profit totals
     h("div",{className:"stat-grid",style:{marginTop:-6}},
       STATUSES.map(s=>{
         const list=allProjs.filter(p=>p.status===s);
@@ -2030,10 +2033,12 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
           const paid=(projPayments[p.id]||[]).reduce((a,x)=>a+(+x.amount||0),0);
           return sum+Math.max(0,(+p.salePrice||0)-paid);
         },0);
+        const profit=list.reduce((sum,p)=>sum+profitOf(p),0);
         return h("div",{key:s,className:"stat-card"},
           h("div",{className:"lbl"},s),
           h("div",{className:"val"},"$"+sale.toLocaleString()),
           h("div",{style:{fontSize:12,fontWeight:600,color:owing>0?"#c0392b":"#2d7a4f",marginTop:3}},"$"+owing.toLocaleString()+" owing"),
+          h("div",{style:{fontSize:12,fontWeight:600,color:profit>=0?"#2563EB":"#c0392b",marginTop:2}},(profit<0?"-":"")+fmtCost(Math.abs(profit))+" profit"),
           h("div",{style:{fontSize:10,color:"#999",marginTop:2}},list.length+" project"+(list.length!==1?"s":""))
         );
       })
@@ -2069,11 +2074,13 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
             h("th",{className:"r"},"Sale"),
             h("th",{className:"r"},"Deposit"),
             h("th",{className:"r"},"Owing"),
+            h("th",{className:"r"},"Profit"),
+            h("th",{className:"r"},"Margin"),
             h("th",null,"")
           )
         ),
         h("tbody",null,
-          filtered.length===0 && h("tr",null,h("td",{colSpan:10,style:{textAlign:"center",padding:"40px",color:DIM}},
+          filtered.length===0 && h("tr",null,h("td",{colSpan:12,style:{textAlign:"center",padding:"40px",color:DIM}},
             search?"No projects match your search.":"No projects.")),
           filtered.map(proj=>{
             const isExp = expandId===proj.id;
@@ -2083,6 +2090,8 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
             const pmts = (projPayments[proj.id]||[]).reduce((s,x)=>s+(+x.amount||0),0);
             const sale = +proj.salePrice||0;
             const owing = sale - pmts;
+            const profit = sale - labor - ct.total;
+            const marginPct = sale>0 ? profit/sale*100 : null;
             const files = (projDetails[String(proj.id)]||{}).files||[];
             const crew = emps.filter(e=>(proj.assignedTo||[]).includes(e.id));
 
@@ -2101,6 +2110,8 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
                 h("td",{className:"r",style:{fontSize:12,fontWeight:sale>0?500:400,color:sale>0?NAVY:DIM}},sale>0?"$"+sale.toLocaleString():"—"),
                 h("td",{className:"r",style:{fontSize:11,color:pmts>0?"#2d7a4f":DIM}},pmts>0?fmtCost(pmts):"—"),
                 h("td",{className:"r",style:{fontSize:11,fontWeight:owing>0?500:400,color:owing>0?GOLD:DIM}},owing>0?fmtCost(owing):"—"),
+                h("td",{className:"r",style:{fontSize:11,fontWeight:500,color:profit>=0?"#2d7a4f":"#c0392b"}},(profit<0?"-":"")+fmtCost(Math.abs(profit))),
+                h("td",{className:"r",style:{fontSize:11,color:marginPct===null?DIM:(marginPct>=0?"#2d7a4f":"#c0392b")}},marginPct===null?"—":marginPct.toFixed(0)+"%"),
                 h("td",{onClick:e=>e.stopPropagation()},
                   h("div",{className:"act-btns"},
                     h("button",{className:"btn-ghost",style:{padding:"3px 8px"},onClick:()=>openEdit(proj)},"Edit"),
@@ -2110,7 +2121,7 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
               ),
               // Expanded detail row
               isExp && h("tr",{key:proj.id+"-exp",className:"exp-row"},
-                h("td",{colSpan:10,className:"exp-panel"},
+                h("td",{colSpan:12,className:"exp-panel"},
                   h("div",{style:{padding:"16px 20px"}},
                     // 8-action grid
                     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:6,marginBottom:16}},
@@ -2673,7 +2684,7 @@ function CrewTab({emps,setEmps,entries,fmtHrs,fmtCost,T}) {
 }
 
 // ─── CLIENTS TAB ──────────────────────────────────────────────────────────────
-function ClientsTabNew({clients,setClients,projs,fmtCost,T}) {
+function ClientsTabNew({clients,setClients,projs,fmtCost,entryCost,projCogsTotals,T}) {
   const [search,setSearch]   = useState("");
   const [confirm,setConfirm] = useState(null);
   const [editId,setEditId]   = useState(null);
@@ -2705,12 +2716,13 @@ function ClientsTabNew({clients,setClients,projs,fmtCost,T}) {
     h("div",{style:{background:SURF,borderRadius:12,border:"0.5px solid "+LINE,overflow:"hidden"}},
       h("table",{className:"tbl"},
         h("thead",null,h("tr",null,
-          h("th",null,"Client"),h("th",null,"Phone"),h("th",null,"Email"),h("th",{className:"r"},"Projects"),h("th",{className:"r"},"Total Revenue"),h("th",null,"")
+          h("th",null,"Client"),h("th",null,"Phone"),h("th",null,"Email"),h("th",{className:"r"},"Projects"),h("th",{className:"r"},"Total Revenue"),h("th",{className:"r"},"Profit"),h("th",null,"")
         )),
         h("tbody",null,
           filtered.map(c=>{
             const cProjs=projs.filter(p=>p.client===c.name);
             const rev=cProjs.reduce((s,p)=>s+(+p.salePrice||0),0);
+            const profit=cProjs.reduce((s,p)=>s+((+p.salePrice||0)-entryCost(p.id)-projCogsTotals(p.id).total),0);
             const isEdit=editId===c.id;
             const d=draft[c.id]||{name:c.name,phone:c.phone||"",email:c.email||"",address:c.address||""};
             return h("tr",{key:c.id},
@@ -2728,6 +2740,7 @@ function ClientsTabNew({clients,setClients,projs,fmtCost,T}) {
               ),
               h("td",{className:"r",style:{fontSize:11,color:cProjs.length>0?NAVY:DIM}},cProjs.length||"—"),
               h("td",{className:"r",style:{fontSize:12,fontWeight:rev>0?500:400,color:rev>0?GOLD:DIM}},rev>0?"$"+rev.toLocaleString():"—"),
+              h("td",{className:"r",style:{fontSize:12,fontWeight:500,color:profit>=0?"#2d7a4f":"#c0392b"}},cProjs.length===0?"—":(profit<0?"-":"")+fmtCost(Math.abs(profit))),
               h("td",null,
                 isEdit
                   ? h("div",{style:{display:"flex",gap:4}},
@@ -3170,7 +3183,7 @@ function App() {
     adminTab==="projects"  && h(ProjectsTab,{projs,setProjs,emps,entries,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}),
     adminTab==="proposals" && h(ProposalsTabNew,{proposals,setProposals,clients,projs,projDetails,T}),
     adminTab==="crew"      && h(CrewTab,{emps,setEmps,entries,fmtHrs,fmtCost,T}),
-    adminTab==="clients"   && h(ClientsTabNew,{clients,setClients,projs,fmtCost,T}),
+    adminTab==="clients"   && h(ClientsTabNew,{clients,setClients,projs,fmtCost,entryCost,projCogsTotals,T}),
     adminTab==="vendors"   && h(VendorsTabNew,{vendors,setVendors,cogs,fmtCost,T}),
     adminTab==="payroll"   && h(PayrollTab,{emps,entries,fmtHrs,fmtCost,T}),
     toast&&h("div",{style:{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:NAVY,color:"#fff",borderRadius:12,padding:"10px 20px",fontSize:13,fontWeight:500,zIndex:200,whiteSpace:"nowrap"}},toast.msg)

@@ -1090,7 +1090,7 @@ function NotesLog({projId, projNotes, setProjNotes, currentUser, T, line, faint}
   const taRef = React.useRef(null);
   const [confirmNote, setConfirmNote] = React.useState(null);
 
-  function addNote() {
+  async function addNote() {
     const t = text.trim();
     if(!t) return;
     const note = {
@@ -1102,7 +1102,9 @@ function NotesLog({projId, projNotes, setProjNotes, currentUser, T, line, faint}
     };
     setProjNotes(p=>({...p,[projId]:[...(p[projId]||[]),note]}));
     setText("");
-    if(taRef.current) e.target.style.height = "auto";
+    const ok = await dbSave("projnotes",[note]);
+    if(!ok) alert("⚠ This note was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
+    if(taRef.current) taRef.current.style.height = "auto";
   }
 
   function deleteNote(id) {
@@ -1856,32 +1858,36 @@ function ConfirmDialog({msg, onConfirm, onCancel}) {
 
 // ─── PROJECTS TAB ────────────────────────────────────────────────────────────
 //  -- RecoveryPanel (one-time triage for records orphaned by the missing-projId bug) --
+const ORPHAN_KEYS = ["undefined","null"]; // items saved with a missing (undefined) or explicitly-null projId
 function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose}) {
-  const orphanPmts  = projPayments["undefined"]||[];
-  const orphanNotes = projNotes["undefined"]||[];
+  const orphanPmts  = ORPHAN_KEYS.flatMap(k=>projPayments[k]||[]);
+  const orphanNotes = ORPHAN_KEYS.flatMap(k=>projNotes[k]||[]);
   const projOptions = [...projs].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const selStyle = {flex:1,fontSize:12,padding:"5px 8px",borderRadius:6,border:"1px solid #E5E2DC",background:"#FFF"};
   const discardStyle = {fontSize:11,color:"#DC2626",background:"none",border:"none",cursor:"pointer",flexShrink:0};
 
+  function clearOrphanKeys(obj, id) {
+    const upd = {...obj};
+    ORPHAN_KEYS.forEach(k=>{ if(upd[k]) upd[k]=upd[k].filter(x=>x.id!==id); });
+    return upd;
+  }
   function assignPayment(pmt, projId) {
     if(!projId) return;
-    setProjPayments(p=>({...p,
-      "undefined": (p["undefined"]||[]).filter(x=>x.id!==pmt.id),
+    setProjPayments(p=>({...clearOrphanKeys(p,pmt.id),
       [projId]: [...(p[projId]||[]), {...pmt, projId:+projId}]
     }));
   }
   function discardPayment(id) {
-    setProjPayments(p=>({...p, "undefined": (p["undefined"]||[]).filter(x=>x.id!==id)}));
+    setProjPayments(p=>clearOrphanKeys(p,id));
   }
   function assignNote(note, projId) {
     if(!projId) return;
-    setProjNotes(p=>({...p,
-      "undefined": (p["undefined"]||[]).filter(x=>x.id!==note.id),
+    setProjNotes(p=>({...clearOrphanKeys(p,note.id),
       [projId]: [...(p[projId]||[]), {...note, projId:+projId}]
     }));
   }
   function discardNote(id) {
-    setProjNotes(p=>({...p, "undefined": (p["undefined"]||[]).filter(x=>x.id!==id)}));
+    setProjNotes(p=>clearOrphanKeys(p,id));
   }
 
   return h("div",{className:"sheet-bg",onClick:onClose},
@@ -1949,7 +1955,7 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
   const [uploading,setUploading]   = useState(false);
   const [showRecovery,setShowRecovery] = useState(false);
 
-  const orphanCount = (projPayments["undefined"]||[]).length + (projNotes["undefined"]||[]).length;
+  const orphanCount = ORPHAN_KEYS.reduce((s,k)=>s+(projPayments[k]||[]).length+(projNotes[k]||[]).length,0);
 
   const clientNames = [...new Set(projs.map(p=>p.client).filter(Boolean))].sort();
   const jobNames    = [...new Set(projs.map(p=>p.jobName).filter(Boolean))].sort();
@@ -2262,11 +2268,13 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
             style:{width:"100%",border:"0.5px solid "+LINE,borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",resize:"none",background:"#f8f6f2",boxSizing:"border-box",marginBottom:12}}),
           h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
             h("button",{className:"btn-ghost",onClick:()=>{setAddNoteId(null);setQuickNote("");}}, "Cancel"),
-            h("button",{className:"btn-primary",onClick:()=>{
+            h("button",{className:"btn-primary",onClick:async()=>{
               if(!quickNote.trim()) return;
-              const note={id:Date.now(),text:quickNote.trim(),author:"Admin",ts:Date.now()};
+              const note={id:Date.now(),projId:addNoteId,text:quickNote.trim(),author:"Admin",ts:Date.now()};
               setProjNotes(p=>({...p,[addNoteId]:[...(p[addNoteId]||[]),note]}));
               setAddNoteId(null); setQuickNote("");
+              const ok=await dbSave("projnotes",[note]);
+              if(!ok) alert("⚠ This note was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
             }},"Save Note")
           )
         )

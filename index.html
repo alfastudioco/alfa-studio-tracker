@@ -115,7 +115,7 @@ async function dbLoad(table) {
 
 async function dbSave(table, items) {
   try {
-    if (!items || items.length === 0) return;
+    if (!items || items.length === 0) return true;
     const body = items.map((item,idx) => ({id: String(item.id||item.name||idx), data: item}));
     const r = await fetch(SB_URL+"/rest/v1/"+table, {
       method: "POST",
@@ -126,8 +126,10 @@ async function dbSave(table, items) {
     if (!r.ok) {
       const txt = await r.text();
       console.error("dbSave failed", table, r.status, txt);
+      return false;
     }
-  } catch(e) { console.error("dbSave error", table, e.message); }
+    return true;
+  } catch(e) { console.error("dbSave error", table, e.message); return false; }
 }
 
 // Like dbSave, but for callers that already know the correct row id per
@@ -306,8 +308,8 @@ function Field({label,value,onChange,type="text",options}){
 }
 
 function Sheet({title,onClose,children}){
-  return h("div",{onClick:onClose,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}},
-    h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:"20px 20px 0 0",padding:"8px 24px 40px",width:"100%",maxWidth:560,maxHeight:"88vh",overflowY:"auto",boxShadow:"0 -4px 40px rgba(0,0,0,0.12)"}},
+  return h("div",{onClick:onClose,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20,boxSizing:"border-box"}},
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:T.surf,borderRadius:20,padding:"8px 24px 24px",width:"100%",maxWidth:560,maxHeight:"85vh",overflowY:"auto",boxShadow:"0 12px 48px rgba(0,0,0,0.25)"}},
       h("div",{style:{width:40,height:4,background:T.border,borderRadius:2,margin:"12px auto 20px"}}),
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}},
         h("span",{style:{fontSize:17,fontWeight:700,color:T.text}},title),
@@ -721,7 +723,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
   const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"9px 11px",fontSize:13,outline:"none",boxSizing:"border-box",width:"100%"};
   const lbl = txt => h("div",{style:{fontSize:10,fontWeight:600,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},txt);
 
-  function save() {
+  async function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
     const item = {id:editId||Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
     setCogs(p=>({...p,[projId]: editId
@@ -729,6 +731,8 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
       : [...(p[projId]||[]), item]
     }));
     setForm(blank); setEditId(null);
+    const ok = await dbSave("cogs",[item]);
+    if(!ok) alert("⚠ This cost was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
   }
   function del(id){ setCogs(p=>({...p,[projId]:(p[projId]||[]).filter(i=>i.id!==id)})); setConfirmCogs(null); }
   function edit(item){ setForm({desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date,invoiceNo:item.invoiceNo||""}); setEditId(item.id); }
@@ -1174,12 +1178,14 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
   const inp = {width:"100%",background:T.surf,border:"1px solid "+T.border,borderRadius:6,color:T.text,padding:"7px 10px",fontSize:13,outline:"none",boxSizing:"border-box"};
   const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}},txt);
 
-  function save() {
+  async function save() {
     if(!form.amount||!+form.amount) return;
     const pmt = {id:Date.now(), projId, amount:+form.amount, type:form.type, date:form.date, note:form.note};
     setProjPayments(p=>({...p,[projId]:[...(p[projId]||[]),pmt]}));
     setForm({amount:"",type:"Deposit",date:new Date().toISOString().slice(0,10),note:""});
     setAdding(false);
+    const ok = await dbSave("projpayments",[pmt]);
+    if(!ok) alert("⚠ This payment was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
   }
   function remove(id) {
     setProjPayments(p=>({...p,[projId]:(p[projId]||[]).filter(x=>x.id!==id)}));
@@ -1650,11 +1656,13 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
     e.target.value="";
   }
 
-  function save() {
+  async function save() {
     if(!form.amount||!+form.amount) return;
     const item = {id:Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", uploadedBy:empName};
     setCogs(p=>({...p,[projId]:[...(p[projId]||[]),item]}));
     setSaved(true);
+    const ok = await dbSave("cogs",[item]);
+    if(!ok) alert("⚠ This cost was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
     setTimeout(onClose, 1200);
   }
 

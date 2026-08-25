@@ -174,6 +174,28 @@ async function dbPushAll(emps, projs, entries) {
   ]);
 }
 
+//  -- Stale-version detection ------------------------------------------
+// A page left open across a deploy keeps running old code indefinitely -
+// this is a static file with no build step or service worker, so nothing
+// else would ever tell it a newer version exists. That staleness has
+// caused real data loss: editing anything on an old tab writes that tab's
+// outdated snapshot back over newer data (e.g. crew assignments silently
+// reverting). Rather than track a manually-bumped version number (easy to
+// forget), this re-fetches the page's own HTML and hashes it, so ANY
+// change to this file is detected automatically with no bookkeeping.
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return h;
+}
+async function fetchSelfHash() {
+  try {
+    const res = await fetch(location.pathname + "?_v=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) return null;
+    return simpleHash(await res.text());
+  } catch(e) { return null; }
+}
+
 //  -- Sync merge helpers ---------------------------------------------
 // The background poll re-fetches full tables every 30s. Naively replacing
 // local state with that response can wipe out an edit that hasn't finished
@@ -2946,6 +2968,8 @@ function App() {
   const [pinInput,setPinInput] = useState("");
   const [pinError,setPinError] = useState("");
   const [toast,setToast]       = useState(null);
+  const [stale,setStale]       = useState(false);
+  const baselineHash = useRef(null);
   // Who's currently clocked in is derived from entries (synced with Supabase),
   // not tracked as separate local state - otherwise a second device (or the
   // same device after a reload) has no way to know someone's already on the
@@ -2973,6 +2997,21 @@ function App() {
   }
 
   useEffect(()=>{const t=setInterval(()=>setNow2(Date.now()),1000);return()=>clearInterval(t);},[]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{ const h=await fetchSelfHash(); if(!cancelled) baselineHash.current=h; })();
+    async function check(){
+      if(baselineHash.current==null) return;
+      const h=await fetchSelfHash();
+      if(h!=null && h!==baselineHash.current) setStale(true);
+    }
+    const iv=setInterval(check, 5*60*1000);
+    function onVisible(){ if(document.visibilityState==="visible") check(); }
+    document.addEventListener("visibilitychange",onVisible);
+    window.addEventListener("focus",check);
+    return ()=>{ cancelled=true; clearInterval(iv); document.removeEventListener("visibilitychange",onVisible); window.removeEventListener("focus",check); };
+  },[]);
 
   useEffect(()=>{
     (async()=>{
@@ -3115,12 +3154,18 @@ function App() {
   const activeProjs = projs.filter(p=>p.status==="In Progress");
   const T={text:NAVY,sub:SUB,dim:DIM,green:"#2d7a4f",amber:GOLD,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2",bg:BG};
 
+  const staleBanner = stale && h("div",{style:{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:"#c0392b",color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:14,fontSize:13,fontWeight:600,flexWrap:"wrap",textAlign:"center"}},
+    "⚠ A newer version of this app is available — saving on this tab risks overwriting recent changes.",
+    h("button",{onClick:()=>window.location.reload(),style:{background:"#fff",color:"#c0392b",border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700,cursor:"pointer",flexShrink:0}},"Refresh Now")
+  );
+
   if(dbLoading) return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:BG,gap:8}},
     h("div",{style:{fontSize:22,fontWeight:700,color:GOLD,letterSpacing:"0.06em"}},"ALFA STUDIO"),
     h("div",{style:{fontSize:12,color:DIM,marginTop:4}},"Loading...")
   );
 
   if(mode==="worker") return h("div",{style:{minHeight:"100vh",background:BG,paddingBottom:"env(safe-area-inset-bottom)"}},
+    staleBanner,
     h("div",{style:{background:NAVY,padding:"16px 20px 14px",paddingTop:"max(16px,env(safe-area-inset-top))"}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between"}},
         h("div",{style:{fontSize:16,fontWeight:700,color:GOLD,letterSpacing:"0.06em"}},"ALFA STUDIO"),
@@ -3166,6 +3211,7 @@ function App() {
   );
 
   if(mode==="pin") return h("div",{style:{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+    staleBanner,
     h("div",{style:{background:SURF,borderRadius:20,padding:"32px 28px",width:"100%",maxWidth:320,textAlign:"center"}},
       h("div",{style:{fontSize:18,fontWeight:700,color:GOLD,letterSpacing:"0.06em",marginBottom:4}},"ALFA STUDIO"),
       h("div",{style:{fontSize:12,color:DIM,marginBottom:24}},"Admin access"),
@@ -3179,6 +3225,7 @@ function App() {
 
   const tabs=ROLE_TABS[currentUser?.role]||ROLE_TABS.owner;
   return h("div",{style:{display:"flex",flexDirection:"column",height:"100vh",background:BG}},
+    staleBanner,
     h("div",{style:{background:NAVY,padding:"0 20px",display:"flex",alignItems:"center",gap:0,flexShrink:0,paddingTop:"env(safe-area-inset-top)"}},
       h("div",{style:{fontSize:14,fontWeight:700,color:GOLD,letterSpacing:"0.06em",marginRight:24,paddingTop:12,paddingBottom:12}},"ALFA STUDIO"),
       h("div",{style:{display:"flex",flex:1,gap:0,overflowX:"auto"}},

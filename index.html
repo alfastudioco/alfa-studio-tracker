@@ -1971,7 +1971,6 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
   const [addPhotoId,setAddPhotoId] = useState(null);
   const [quickSheet,setQuickSheet] = useState(null); // {projId, section}
   const [addNoteId,setAddNoteId]   = useState(null);
-  const [quickNote,setQuickNote]   = useState("");
   const [cogsSheet,setCogsSheet]   = useState(null);
   const [confirmDel,setConfirmDel] = useState(null);
   const [uploading,setUploading]   = useState(false);
@@ -2163,7 +2162,7 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
                     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:6,marginBottom:16}},
                       [
                         {icon:"ti-photo",label:"Photo",    fn:()=>setAddPhotoId(proj.id)},
-                        {icon:"ti-note",label:"Note",     fn:()=>{setQuickNote("");setAddNoteId(proj.id);}},
+                        {icon:"ti-note",label:"Note",     fn:()=>setAddNoteId(proj.id)},
                         {icon:"ti-palette",label:"Selects",fn:()=>setQuickSheet({projId:proj.id,section:"selections"})},
                         {icon:"ti-folder",label:"Files",   fn:()=>setQuickSheet({projId:proj.id,section:"files"})},
                         {icon:"ti-clock",label:"Time",    fn:()=>setQuickSheet({projId:proj.id,section:"timelog"})},
@@ -2281,25 +2280,16 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
 
     // ── Add Note sheet ──
     addNoteId&&h("div",{className:"sheet-bg",onClick:()=>setAddNoteId(null)},
-      h("div",{className:"sheet",onClick:e=>e.stopPropagation()},
+      h("div",{className:"sheet",onClick:e=>e.stopPropagation(),style:{maxWidth:520}},
         h("div",{className:"sheet-handle"}),
-        h("div",{style:{padding:"16px 20px 28px"}},
-          h("div",{style:{fontSize:14,fontWeight:600,color:NAVY,marginBottom:12}},(projs.find(p=>p.id===addNoteId)||{}).name+" — Note"),
-          h("textarea",{autoFocus:true,value:quickNote,onChange:e=>setQuickNote(e.target.value),
-            placeholder:"Type your note…",rows:4,
-            style:{width:"100%",border:"0.5px solid "+LINE,borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",resize:"none",background:"#f8f6f2",boxSizing:"border-box",marginBottom:12}}),
-          h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
-            h("button",{className:"btn-ghost",onClick:()=>{setAddNoteId(null);setQuickNote("");}}, "Cancel"),
-            h("button",{className:"btn-primary",onClick:async()=>{
-              if(!quickNote.trim()) return;
-              const note={id:Date.now(),projId:addNoteId,text:quickNote.trim(),author:"Admin",ts:Date.now()};
-              setProjNotes(p=>({...p,[addNoteId]:[...(p[addNoteId]||[]),note]}));
-              setAddNoteId(null); setQuickNote("");
-              const ok=await dbSave("projnotes",[note]);
-              if(!ok) alert("⚠ This note was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
-            }},"Save Note")
+        h("div",{style:{padding:"16px 20px 0"}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",{style:{fontSize:14,fontWeight:600,color:NAVY}},(projs.find(p=>p.id===addNoteId)||{}).name),
+            h("button",{onClick:()=>setAddNoteId(null),style:{background:"none",border:"none",color:SUB,cursor:"pointer",fontSize:18}},"×")
           )
-        )
+        ),
+        h(NotesLog,{projId:addNoteId,projNotes,setProjNotes,currentUser:null,
+          T:{text:NAVY,sub:SUB,dim:DIM,border:LINE},line:LINE,faint:"#f8f6f2"})
       )
     ),
 

@@ -2287,12 +2287,15 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
                     ),
                     // File thumbnails
                     files.length>0&&h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}},
-                      files.map(f=>h("div",{key:f.id,onClick:()=>openFile(f),
-                        style:{width:56,height:48,borderRadius:6,border:"0.5px solid "+LINE,background:"#f8f6f2",
-                          display:"flex",alignItems:"center",justifyContent:"center",cursor:(f.url||f.data)?"pointer":"default",overflow:"hidden"}},
-                        (f.url||f.data)&&(f.type||"").startsWith("image")
-                          ? h("img",{src:f.url||f.data,style:{width:"100%",height:"100%",objectFit:"cover"}})
-                          : h("i",{className:(f.type||"").includes("pdf")?"ti ti-file-type-pdf":"ti ti-file",style:{fontSize:20,color:NAVY}})
+                      files.map(f=>h("div",{key:f.id,onClick:()=>openFile(f),title:f.name,
+                        style:{width:72,cursor:(f.url||f.data)?"pointer":"default"}},
+                        h("div",{style:{width:72,height:48,borderRadius:6,border:"0.5px solid "+LINE,background:"#f8f6f2",
+                          display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}},
+                          (f.url||f.data)&&(f.type||"").startsWith("image")
+                            ? h("img",{src:f.url||f.data,style:{width:"100%",height:"100%",objectFit:"cover"}})
+                            : h("i",{className:(f.type||"").includes("pdf")?"ti ti-file-type-pdf":"ti ti-file",style:{fontSize:20,color:NAVY}})
+                        ),
+                        h("div",{style:{fontSize:10,color:SUB,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"center"}},f.name||"—")
                       ))
                     ),
                     // Notes preview

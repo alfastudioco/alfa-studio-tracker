@@ -2026,11 +2026,12 @@ function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,proj
   );
 }
 
-function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setProjDetails,
+function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDetails,setProjDetails,
   projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,
   fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}) {
 
   const [filter,setFilter]   = useState("All");
+  const [addTimeForm,setAddTimeForm] = useState(null); // {empId,date,hours} while the mini add-time form is open
   const [search,setSearch]   = useState("");
   const [expandId,setExpandId] = useState(null);
   const [editProj,setEditProj] = useState(null); // null | "new" | proj
@@ -2109,6 +2110,19 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
     }
     setUploading(false);
     setAddPhotoId(null);
+  }
+
+  function addTimeEntry(projId) {
+    if(!addTimeForm||!addTimeForm.empId||!addTimeForm.hours||+addTimeForm.hours<=0) return;
+    const ms = +addTimeForm.hours*3600000;
+    const base = new Date(addTimeForm.date+"T07:00:00").getTime();
+    const entry = {id:Date.now(), empId:+addTimeForm.empId, projId, start:base, end:base+ms};
+    setEntries(p=>[...p,entry]);
+    setAddTimeForm(null);
+  }
+  function deleteTimeEntry(entry) {
+    setEntries(p=>p.filter(x=>x.id!==entry.id));
+    dbDeleteIds("entries",[entry.id]);
   }
 
   const STATUSES_ALL = ["All",...STATUSES];
@@ -2372,7 +2386,38 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
           (()=>{
             const proj=projs.find(x=>x.id===quickSheet.projId); if(!proj) return null;
             const done=entries.filter(e=>e.end&&e.projId===proj.id).sort((a,b)=>b.start-a.start);
-            if(quickSheet.section==="timelog") return h("div",{style:{padding:"8px 4px"}},h(ProjEmpLog,{entries:done,emps,onDelete:()=>{},onEdit:()=>{}}));
+            if(quickSheet.section==="timelog") return h("div",{style:{padding:"8px 4px"}},
+              addTimeForm
+                ? h("div",{style:{background:"#F5F3F0",borderRadius:8,padding:10,marginBottom:10}},
+                    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+                      h("div",null,
+                        h("div",{style:{fontSize:10,fontWeight:600,color:SUB,textTransform:"uppercase",marginBottom:4}},"Employee"),
+                        h("select",{value:addTimeForm.empId,onChange:e=>setAddTimeForm(f=>({...f,empId:e.target.value})),
+                          style:{width:"100%",background:"#FFF",border:"1px solid "+LINE,borderRadius:6,padding:"7px 8px",fontSize:12,outline:"none"}},
+                          h("option",{value:""},"Select…"),
+                          emps.map(e=>h("option",{key:e.id,value:e.id},e.name))
+                        )
+                      ),
+                      h("div",null,
+                        h("div",{style:{fontSize:10,fontWeight:600,color:SUB,textTransform:"uppercase",marginBottom:4}},"Hours"),
+                        h("input",{type:"number",min:0,step:0.25,value:addTimeForm.hours,onChange:e=>setAddTimeForm(f=>({...f,hours:e.target.value})),
+                          style:{width:"100%",background:"#FFF",border:"1px solid "+LINE,borderRadius:6,padding:"7px 8px",fontSize:12,outline:"none",boxSizing:"border-box"}})
+                      )
+                    ),
+                    h("div",{style:{marginBottom:10}},
+                      h("div",{style:{fontSize:10,fontWeight:600,color:SUB,textTransform:"uppercase",marginBottom:4}},"Date"),
+                      h("input",{type:"date",value:addTimeForm.date,onChange:e=>setAddTimeForm(f=>({...f,date:e.target.value})),
+                        style:{width:"100%",background:"#FFF",border:"1px solid "+LINE,borderRadius:6,padding:"7px 8px",fontSize:12,outline:"none",boxSizing:"border-box"}})
+                    ),
+                    h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
+                      h("button",{onClick:()=>setAddTimeForm(null),style:{borderRadius:6,cursor:"pointer",fontSize:12,padding:"6px 12px",background:"transparent",color:SUB,border:"1px solid "+LINE}},"Cancel"),
+                      h("button",{onClick:()=>addTimeEntry(proj.id),style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 14px",background:NAVY,color:"#FFF",border:"none"}},"✓ Add Time")
+                    )
+                  )
+                : h("button",{onClick:()=>setAddTimeForm({empId:"",date:new Date().toISOString().slice(0,10),hours:""}),
+                    style:{width:"100%",marginBottom:10,background:GOLD+"12",border:"1.5px dashed "+GOLD+"44",borderRadius:8,padding:"8px",fontSize:12,fontWeight:600,color:"#92600a",cursor:"pointer"}},"+ Add Time"),
+              h(ProjEmpLog,{entries:done,emps,onDelete:deleteTimeEntry,onEdit:()=>{}})
+            );
             if(quickSheet.section==="payments") return h(PaymentsPanel,{projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T:{text:NAVY,sub:SUB,dim:DIM,green:"#2d7a4f",amber:GOLD,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2"},line:LINE,faint:"#f8f6f2"});
             return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,
               T:{text:NAVY,sub:SUB,dim:DIM,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2"},
@@ -3340,7 +3385,7 @@ function App() {
           style:{fontSize:10,color:"rgba(255,255,255,0.5)",background:"rgba(255,255,255,0.08)",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer"}},"Lock")
       )
     ),
-    adminTab==="projects"  && h(ProjectsTab,{projs,setProjs,emps,entries,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}),
+    adminTab==="projects"  && h(ProjectsTab,{projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}),
     adminTab==="proposals" && h(ProposalsTabNew,{proposals,setProposals,clients,projs,projDetails,T}),
     adminTab==="crew"      && h(CrewTab,{emps,setEmps,entries,fmtHrs,fmtCost,T}),
     adminTab==="clients"   && h(ClientsTabNew,{clients,setClients,projs,fmtCost,entryCost,projCogsTotals,T}),

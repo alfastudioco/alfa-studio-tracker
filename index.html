@@ -222,6 +222,7 @@ async function fetchSelfHash() {
 // id age — no separate bookkeeping needed.
 const MERGE_GRACE_MS = 60000;
 function mergeById(local, server) {
+  const localById = new Map(local.map(x=>[String(x.id),x]));
   const serverIds = new Set(server.map(x=>String(x.id)));
   const now = Date.now();
   const pending = local.filter(x=>{
@@ -229,7 +230,18 @@ function mergeById(local, server) {
     const createdAt = Number(x.id);
     return Number.isFinite(createdAt) && (now-createdAt) < MERGE_GRACE_MS;
   });
-  return [...pending, ...server];
+  // Reuse the existing local reference when a server item's content is
+  // unchanged, instead of always taking the freshly-parsed server object.
+  // Every poll tick otherwise hands back brand-new object references for
+  // everything even when nothing changed, which defeats any reference-
+  // equality dirty-diff downstream (the save effects re-save on every
+  // poll instead of only on real edits - the same bug this file exists to
+  // prevent, just recurring every 30s instead of on every edit).
+  const merged = server.map(item=>{
+    const localItem = localById.get(String(item.id));
+    return (localItem && JSON.stringify(localItem)===JSON.stringify(item)) ? localItem : item;
+  });
+  return [...pending, ...merged];
 }
 function mergeGroupedById(localGrouped, serverFlat) {
   const merged = mergeById(Object.values(localGrouped).flat(), serverFlat);
@@ -2072,7 +2084,7 @@ function ProjectsTab({projs,setProjs,emps,entries,cogs,setCogs,projDetails,setPr
 
   function delProj(id) {
     setProjs(p=>p.filter(x=>x.id!==id));
-    fetch(SB_URL+"/rest/v1/projects?id=eq."+String(id),{method:"DELETE",mode:"cors",headers:SB_HEADERS}).catch(()=>{});
+    dbDeleteIds("projects",[id]);
     setConfirmDel(null);
     if(expandId===id) setExpandId(null);
   }
@@ -2761,7 +2773,7 @@ function CrewTab({emps,setEmps,entries,fmtHrs,fmtCost,T}) {
       )
     ),
     confirm&&h(ConfirmDialog,{msg:"Remove "+confirm.name+"?",
-      onConfirm:()=>{ setEmps(p=>p.filter(x=>x.id!==confirm.id)); dbSave("employees",emps.filter(x=>x.id!==confirm.id)); setConfirm(null); },
+      onConfirm:()=>{ setEmps(p=>p.filter(x=>x.id!==confirm.id)); dbDeleteIds("employees",[confirm.id]); setConfirm(null); },
       onCancel:()=>setConfirm(null)})
   );
 }
@@ -2840,7 +2852,7 @@ function ClientsTabNew({clients,setClients,projs,fmtCost,entryCost,projCogsTotal
         )
       )
     ),
-    confirm&&h(ConfirmDialog,{msg:"Remove "+confirm.name+"?",onConfirm:()=>{setClients(p=>p.filter(x=>x.id!==confirm.id));setConfirm(null);},onCancel:()=>setConfirm(null)})
+    confirm&&h(ConfirmDialog,{msg:"Remove "+confirm.name+"?",onConfirm:()=>{setClients(p=>p.filter(x=>x.id!==confirm.id));dbDeleteIds("clients",[confirm.id]);setConfirm(null);},onCancel:()=>setConfirm(null)})
   );
 }
 
@@ -2906,7 +2918,7 @@ function VendorsTabNew({vendors,setVendors,cogs,fmtCost,T}) {
         )
       )
     ),
-    confirm&&h(ConfirmDialog,{msg:"Remove "+confirm.name+"?",onConfirm:()=>{setVendors(p=>p.filter(x=>x.id!==confirm.id));setConfirm(null);},onCancel:()=>setConfirm(null)})
+    confirm&&h(ConfirmDialog,{msg:"Remove "+confirm.name+"?",onConfirm:()=>{setVendors(p=>p.filter(x=>x.id!==confirm.id));dbDeleteIds("vendors",[confirm.id]);setConfirm(null);},onCancel:()=>setConfirm(null)})
   );
 }
 
@@ -3029,6 +3041,11 @@ function App() {
   const prevCogsFlat = useRef(new Map());
   const prevNotesFlat = useRef(new Map());
   const prevPaymentsFlat = useRef(new Map());
+  const prevEmpsFlat = useRef(new Map());
+  const prevProjsFlat = useRef(new Map());
+  const prevEntriesFlat = useRef(new Map());
+  const prevClientsFlat = useRef(new Map());
+  const prevVendorsFlat = useRef(new Map());
 
   function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}}
   function fmtHrs(ms){const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000);return h+"h"+(m>0?" "+m+"m":"");}
@@ -3117,11 +3134,11 @@ function App() {
     return()=>clearInterval(poll);
   },[dbReady]);
 
-  useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}if(!dbReady||emps.length===0)return;dbSave("employees",emps);},[emps]);
-  useEffect(()=>{try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}if(isFirstRender.current.projs){isFirstRender.current.projs=false;return;}dbSave("projects",projs);},[projs]);
-  useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}if(isFirstRender.current.entries){isFirstRender.current.entries=false;return;}dbSave("entries",entries);},[entries]);
-  useEffect(()=>{if(!dbReady||clients.length===0)return;dbSave("clients",clients);},[clients]);
-  useEffect(()=>{if(!dbReady||vendors.length===0)return;dbSave("vendors",vendors);},[vendors]);
+  useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}if(!dbReady||emps.length===0)return;const changed=diffChangedItems(prevEmpsFlat,emps);if(changed.length>0)dbSave("employees",changed);},[emps]);
+  useEffect(()=>{try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}if(isFirstRender.current.projs){isFirstRender.current.projs=false;prevProjsFlat.current=new Map(projs.map(p=>[p.id,p]));return;}const changed=diffChangedItems(prevProjsFlat,projs);if(changed.length>0)dbSave("projects",changed);},[projs]);
+  useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}if(isFirstRender.current.entries){isFirstRender.current.entries=false;prevEntriesFlat.current=new Map(entries.map(e=>[e.id,e]));return;}const changed=diffChangedItems(prevEntriesFlat,entries);if(changed.length>0)dbSave("entries",changed);},[entries]);
+  useEffect(()=>{if(!dbReady||clients.length===0)return;const changed=diffChangedItems(prevClientsFlat,clients);if(changed.length>0)dbSave("clients",changed);},[clients]);
+  useEffect(()=>{if(!dbReady||vendors.length===0)return;const changed=diffChangedItems(prevVendorsFlat,vendors);if(changed.length>0)dbSave("vendors",changed);},[vendors]);
   useEffect(()=>{if(!dbReady||Object.keys(cogs).length===0)return;const flat=Object.values(cogs).flat();const changed=diffChangedItems(prevCogsFlat,flat);if(changed.length>0)dbSave("cogs",changed);},[cogs]);
   useEffect(()=>{if(!dbReady||Object.keys(projNotes).length===0)return;const flat=Object.values(projNotes).flat();const changed=diffChangedItems(prevNotesFlat,flat);if(changed.length>0)dbSave("projnotes",changed);},[projNotes]);
   useEffect(()=>{if(!dbReady||Object.keys(projPayments).length===0)return;const flat=Object.values(projPayments).flat();const changed=diffChangedItems(prevPaymentsFlat,flat);if(changed.length>0)dbSave("projpayments",changed);},[projPayments]);

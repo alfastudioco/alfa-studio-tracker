@@ -222,6 +222,27 @@ function mergeGroupedById(localGrouped, serverFlat) {
   merged.forEach(i=>{ if(!obj[i.projId]) obj[i.projId]=[]; obj[i.projId].push(i); });
   return obj;
 }
+// projDetails is keyed by projId, each value a blob whose `files` array is
+// exactly the kind of list mergeById protects (ids are Date.now()-based).
+// Other fields (material/finish/etc) take the server's value as-is - full
+// attribute-level merging isn't worth the complexity these are edited by
+// one person at a time far less often than files get uploaded.
+function mergeProjDetails(local, serverRows) {
+  const result = {...local};
+  serverRows.forEach(row=>{
+    const key = String(row.id);
+    const serverData = row.data || {};
+    const localEntry = local[key];
+    const localFiles = (localEntry && localEntry.files) || [];
+    const serverFiles = serverData.files || [];
+    const merged = {...serverData, files: mergeById(localFiles, serverFiles)};
+    // Reuse the existing reference when content didn't actually change, so
+    // the save effect's reference-equality dirty-diff correctly skips
+    // re-saving projects this poll tick didn't really touch.
+    result[key] = (localEntry && JSON.stringify(localEntry)===JSON.stringify(merged)) ? localEntry : merged;
+  });
+  return result;
+}
 
 //  -- Constants ----------------------------------------------
 // Admin users — each has a PIN and role
@@ -2970,6 +2991,7 @@ function App() {
   entries.forEach(e=>{ if(e.end==null) activeFor[e.empId]={projId:e.projId,start:e.start,entryId:e.id}; });
   const [now2,setNow2]         = useState(Date.now());
   const isFirstRender = useRef({emps:true,projs:true,entries:true});
+  const prevProjDetails = useRef({});
 
   function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}}
   function fmtHrs(ms){const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000);return h+"h"+(m>0?" "+m+"m":"");}
@@ -3022,7 +3044,7 @@ function App() {
         if(co&&co.length>0)setClientOrder(co.map(i=>i.name));
         if(pp&&pp.length>0){const obj={};pp.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setProjPayments(obj);}
         const pdRows=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
-        if(pdRows.length>0){const obj={};pdRows.forEach(row=>{const key=String(row.id);const data=row.data||{};obj[key]={...data,files:data.files||[]};});setProjDetails(obj);}
+        if(pdRows.length>0)setProjDetails(prev=>mergeProjDetails(prev,pdRows));
         const pr=await dbLoad("proposals");
         if(pr&&pr.length>0){const lPr=load("alfa_proposals",[]);const merged=pr.map(p=>{const lp=lPr.find(x=>String(x.id)===String(p.id));return lp&&lp.generatedHtml?{...p,generatedHtml:lp.generatedHtml}:p;});setProposals(merged);}
       }catch(err){console.error("Load error",err);setEmps(DEFAULT_EMPS);setProjs(load("alfa_projs",DEFAULT_PROJS));setEntries(load("alfa_entries",[]));}
@@ -3052,7 +3074,7 @@ function App() {
         if(pp&&pp.length>0)setProjPayments(prev=>mergeGroupedById(prev,pp));
         if(co&&co.length>0)setClientOrder(co.map(i=>i.name));
         const pdR=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
-        if(pdR.length>0){const obj={};pdR.forEach(row=>{const key=String(row.id);const data=row.data||{};obj[key]={...data,files:data.files||[]};});setProjDetails(obj);}
+        if(pdR.length>0)setProjDetails(prev=>mergeProjDetails(prev,pdR));
       }catch(e){}
     },30000);
     return()=>clearInterval(poll);
@@ -3069,7 +3091,18 @@ function App() {
   useEffect(()=>{if(!dbReady||clientOrder.length===0)return;dbSave("clientorder",clientOrder.map(n=>({name:n})));},[clientOrder]);
   useEffect(()=>{
     if(!dbReady||Object.keys(projDetails).length===0)return;
-    const flat=Object.entries(projDetails).map(([projId,data])=>{
+    // Only re-save the projects whose blob actually changed (reference
+    // inequality - state updates are immutable, so an untouched project's
+    // object is the exact same reference as last render). Saving every
+    // project on every change - even ones this tab never touched - was
+    // silently overwriting other projects' data with whatever this tab
+    // happened to have loaded for them, wiping uploaded files/selections
+    // across the whole app any time anyone edited any one project.
+    const prev=prevProjDetails.current;
+    const changed=Object.entries(projDetails).filter(([key,data])=>prev[key]!==data);
+    prevProjDetails.current=projDetails;
+    if(changed.length===0)return;
+    const flat=changed.map(([projId,data])=>{
       const files=(data.files||[]).map(f=>f.url?{id:f.id,name:f.name,type:f.type,url:f.url,path:f.path,date:f.date}:f);
       return {id:String(projId),data:{...data,files,projId:+projId}};
     });

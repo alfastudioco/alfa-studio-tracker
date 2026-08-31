@@ -163,6 +163,21 @@ async function dbDelete(table, keepIds) {
   } catch(e) { console.error("dbDelete error", table, e.message); }
 }
 
+// Delete specific rows by id (dbDelete above does the opposite - "keep only
+// these" - which is the wrong shape for "remove this one thing the user
+// just deleted"). Without this, removing a cost/note/payment only hid it
+// locally; the row stayed on the server and reappeared on the next
+// load/poll since nothing ever told the server it was gone.
+async function dbDeleteIds(table, ids) {
+  try {
+    if (!ids || ids.length === 0) return;
+    const idList = ids.map(i => String(i)).join(",");
+    await fetch(SB_URL+"/rest/v1/"+table+"?id=in.("+idList+")", {
+      method: "DELETE", mode: "cors", headers: SB_HEADERS
+    });
+  } catch(e) { console.error("dbDeleteIds error", table, e.message); }
+}
+
 async function dbPushAll(emps, projs, entries) {
   await Promise.all([
     dbSave("employees", emps),
@@ -242,6 +257,21 @@ function mergeProjDetails(local, serverRows) {
     result[key] = (localEntry && JSON.stringify(localEntry)===JSON.stringify(merged)) ? localEntry : merged;
   });
   return result;
+}
+
+// Same "only persist what this tab actually changed" idea as the
+// projDetails fix, applied to the flat per-item collections (cogs,
+// projnotes, projpayments). Their save effects used to re-send every item
+// this tab knew about on every change to any one of them - lower blast
+// radius than projDetails since each item is its own row, but a tab with a
+// stale copy of some OTHER item could still overwrite a more recent edit
+// to it made elsewhere. `ref` holds a Map of id -> item as of the last run;
+// only items whose reference differs (edited, or new) are returned.
+function diffChangedItems(ref, flatItems) {
+  const prev = ref.current;
+  const changed = flatItems.filter(item=>prev.get(item.id)!==item);
+  ref.current = new Map(flatItems.map(item=>[item.id,item]));
+  return changed;
 }
 
 //  -- Constants ----------------------------------------------
@@ -777,7 +807,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
     const ok = await dbSave("cogs",[item]);
     if(!ok) alert("⚠ This cost was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
   }
-  function del(id){ setCogs(p=>({...p,[projId]:(p[projId]||[]).filter(i=>i.id!==id)})); setConfirmCogs(null); }
+  function del(id){ setCogs(p=>({...p,[projId]:(p[projId]||[]).filter(i=>i.id!==id)})); setConfirmCogs(null); dbDeleteIds("cogs",[id]); }
   function edit(item){ setForm({desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date,invoiceNo:item.invoiceNo||""}); setEditId(item.id); }
   function addQuickVendor(){
     if(!quickVendor.trim()) return;
@@ -1152,6 +1182,7 @@ function NotesLog({projId, projNotes, setProjNotes, currentUser, T, line, faint}
 
   function deleteNote(id) {
     setProjNotes(p=>({...p,[projId]:(p[projId]||[]).filter(n=>n.id!==id)}));
+    dbDeleteIds("projnotes",[id]);
   }
 
   function fmtNoteDate(iso) {
@@ -1235,6 +1266,7 @@ function PaymentsPanel({projId, projPayments, setProjPayments, salePrice, fmtCos
   function remove(id) {
     setProjPayments(p=>({...p,[projId]:(p[projId]||[]).filter(x=>x.id!==id)}));
     setConfirmPmt(null);
+    dbDeleteIds("projpayments",[id]);
   }
 
   const typeColor = {Deposit:T.blue,"Progress Payment":T.amber,"Final Payment":T.green,Other:T.sub};
@@ -1922,6 +1954,7 @@ function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,proj
   }
   function discardPayment(id) {
     setProjPayments(p=>clearOrphanKeys(p,id));
+    dbDeleteIds("projpayments",[id]);
   }
   function assignNote(note, projId) {
     if(!projId) return;
@@ -1931,6 +1964,7 @@ function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,proj
   }
   function discardNote(id) {
     setProjNotes(p=>clearOrphanKeys(p,id));
+    dbDeleteIds("projnotes",[id]);
   }
 
   return h("div",{className:"sheet-bg",onClick:onClose},
@@ -2992,6 +3026,9 @@ function App() {
   const [now2,setNow2]         = useState(Date.now());
   const isFirstRender = useRef({emps:true,projs:true,entries:true});
   const prevProjDetails = useRef({});
+  const prevCogsFlat = useRef(new Map());
+  const prevNotesFlat = useRef(new Map());
+  const prevPaymentsFlat = useRef(new Map());
 
   function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}}
   function fmtHrs(ms){const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000);return h+"h"+(m>0?" "+m+"m":"");}
@@ -3085,9 +3122,9 @@ function App() {
   useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}if(isFirstRender.current.entries){isFirstRender.current.entries=false;return;}dbSave("entries",entries);},[entries]);
   useEffect(()=>{if(!dbReady||clients.length===0)return;dbSave("clients",clients);},[clients]);
   useEffect(()=>{if(!dbReady||vendors.length===0)return;dbSave("vendors",vendors);},[vendors]);
-  useEffect(()=>{if(!dbReady||Object.keys(cogs).length===0)return;const flat=Object.values(cogs).flat();if(flat.length>0)dbSave("cogs",flat);},[cogs]);
-  useEffect(()=>{if(!dbReady||Object.keys(projNotes).length===0)return;const flat=Object.values(projNotes).flat();if(flat.length>0)dbSave("projnotes",flat);},[projNotes]);
-  useEffect(()=>{if(!dbReady||Object.keys(projPayments).length===0)return;const flat=Object.values(projPayments).flat();if(flat.length>0)dbSave("projpayments",flat);},[projPayments]);
+  useEffect(()=>{if(!dbReady||Object.keys(cogs).length===0)return;const flat=Object.values(cogs).flat();const changed=diffChangedItems(prevCogsFlat,flat);if(changed.length>0)dbSave("cogs",changed);},[cogs]);
+  useEffect(()=>{if(!dbReady||Object.keys(projNotes).length===0)return;const flat=Object.values(projNotes).flat();const changed=diffChangedItems(prevNotesFlat,flat);if(changed.length>0)dbSave("projnotes",changed);},[projNotes]);
+  useEffect(()=>{if(!dbReady||Object.keys(projPayments).length===0)return;const flat=Object.values(projPayments).flat();const changed=diffChangedItems(prevPaymentsFlat,flat);if(changed.length>0)dbSave("projpayments",changed);},[projPayments]);
   useEffect(()=>{if(!dbReady||clientOrder.length===0)return;dbSave("clientorder",clientOrder.map(n=>({name:n})));},[clientOrder]);
   useEffect(()=>{
     if(!dbReady||Object.keys(projDetails).length===0)return;

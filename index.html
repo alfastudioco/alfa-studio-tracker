@@ -2923,9 +2923,16 @@ function VendorsTabNew({vendors,setVendors,cogs,fmtCost,T}) {
 }
 
 // ─── PAYROLL TAB ──────────────────────────────────────────────────────────────
-function PayrollTab({emps,entries,fmtHrs,fmtCost,T}) {
+function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
   const [range,setRange] = useState("week");
   const [offset,setOffset] = useState(0);
+  const [showImport,setShowImport] = useState(false);
+  const [viewLogEmp,setViewLogEmp] = useState(null);
+
+  function deleteEntry(entry) {
+    setEntries(p=>p.filter(x=>x.id!==entry.id));
+    dbDeleteIds("entries",[entry.id]);
+  }
 
   const now = Date.now();
   function getRangeBounds() {
@@ -2958,33 +2965,46 @@ function PayrollTab({emps,entries,fmtHrs,fmtCost,T}) {
         ["week","month","all"].map(r=>h("button",{key:r,className:"ftab"+(range===r?" active":""),onClick:()=>{setRange(r);setOffset(0);}},r==="week"?"Week":r==="month"?"Month":"All Time"))
       ),
       range!=="all"&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o-1)},"←"),
-      range!=="all"&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o+1)},"→")
+      range!=="all"&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o+1)},"→"),
+      h("div",{style:{flex:1}}),
+      h("button",{className:"btn-primary",onClick:()=>setShowImport(true)},"+ Import from Spreadsheet")
     ),
     h("div",{style:{background:SURF,borderRadius:12,border:"0.5px solid "+LINE,overflow:"hidden"}},
       h("table",{className:"tbl"},
         h("thead",null,h("tr",null,
-          h("th",null,"Employee"),h("th",{className:"r"},"Hours"),h("th",{className:"r"},"Rate"),h("th",{className:"r"},"Earnings")
+          h("th",null,"Employee"),h("th",{className:"r"},"Hours"),h("th",{className:"r"},"Rate"),h("th",{className:"r"},"Earnings"),h("th",null,"")
         )),
         h("tbody",null,
           empRows.map(({emp,hrs,earned})=>
-            h("tr",{key:emp.id},
+            h("tr",{key:emp.id,style:{cursor:"pointer"},onClick:()=>setViewLogEmp(emp)},
               h("td",null,h("div",{style:{display:"flex",alignItems:"center",gap:8}},
                 h("div",{style:{width:28,height:28,borderRadius:"50%",background:emp.color+"25",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,color:emp.color,flexShrink:0}},(emp.name||"?")[0].toUpperCase()),
                 h("div",null,h("div",{style:{fontSize:12,fontWeight:500,color:NAVY}},emp.name),h("div",{style:{fontSize:10,color:DIM}},emp.role))
               )),
               h("td",{className:"r",style:{fontSize:12,color:hrs>0?NAVY:DIM}},hrs>0?fmtHrs(hrs):"—"),
               h("td",{className:"r",style:{fontSize:11,color:SUB}},emp.rate?"$"+emp.rate+"/hr":"—"),
-              h("td",{className:"r",style:{fontSize:13,fontWeight:earned>0?600:400,color:earned>0?GOLD:DIM}},earned>0?"$"+Math.round(earned).toLocaleString():"—")
+              h("td",{className:"r",style:{fontSize:13,fontWeight:earned>0?600:400,color:earned>0?GOLD:DIM}},earned>0?"$"+Math.round(earned).toLocaleString():"—"),
+              h("td",null,h("span",{className:"btn-ghost",style:{padding:"3px 8px",fontSize:11}},"View Log"))
             )
           ),
           h("tr",{style:{borderTop:"2px solid "+LINE}},
             h("td",{style:{fontSize:12,fontWeight:600,color:NAVY}},"Total"),
             h("td",{className:"r",style:{fontSize:12,fontWeight:600,color:NAVY}},fmtHrs(totalHrs)),
             h("td",null),
-            h("td",{className:"r",style:{fontSize:13,fontWeight:700,color:GOLD}},"$"+Math.round(totalEarned).toLocaleString())
+            h("td",{className:"r",style:{fontSize:13,fontWeight:700,color:GOLD}},"$"+Math.round(totalEarned).toLocaleString()),
+            h("td",null)
           )
         )
       )
+    ),
+
+    showImport&&h(ImportSheet,{emps,projs,onClose:()=>setShowImport(false),onSave:newEntries=>{
+      setEntries(p=>[...p,...newEntries]);
+      setShowImport(false);
+    }}),
+
+    viewLogEmp&&h(Sheet,{title:viewLogEmp.name+" — Time Log",onClose:()=>setViewLogEmp(null)},
+      h(WorkerLogCard,{emp:viewLogEmp,entries:entries.filter(e=>e.empId===viewLogEmp.id),projs,onDelete:deleteEntry})
     )
   );
 }
@@ -3325,7 +3345,7 @@ function App() {
     adminTab==="crew"      && h(CrewTab,{emps,setEmps,entries,fmtHrs,fmtCost,T}),
     adminTab==="clients"   && h(ClientsTabNew,{clients,setClients,projs,fmtCost,entryCost,projCogsTotals,T}),
     adminTab==="vendors"   && h(VendorsTabNew,{vendors,setVendors,cogs,fmtCost,T}),
-    adminTab==="payroll"   && h(PayrollTab,{emps,entries,fmtHrs,fmtCost,T}),
+    adminTab==="payroll"   && h(PayrollTab,{emps,entries,setEntries,projs,fmtHrs,fmtCost,T}),
     toast&&h("div",{style:{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:NAVY,color:"#fff",borderRadius:12,padding:"10px 20px",fontSize:13,fontWeight:500,zIndex:200,whiteSpace:"nowrap"}},toast.msg)
   );
 }

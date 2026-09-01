@@ -2039,6 +2039,14 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
 
   const [filter,setFilter]   = useState("All");
   const [addTimeForm,setAddTimeForm] = useState(null); // {empId,date,hours} while the mini add-time form is open
+  const [inlineEdit,setInlineEdit] = useState(null); // {projId,field,value} while a table cell is being edited in place
+
+  function saveInlineEdit() {
+    if(!inlineEdit) return;
+    setProjs(p=>p.map(x=>x.id===inlineEdit.projId?{...x,[inlineEdit.field]:inlineEdit.value,updatedAt:Date.now()}:x));
+    setInlineEdit(null);
+  }
+  function cancelInlineEdit() { setInlineEdit(null); }
   const [search,setSearch]   = useState("");
   const [expandId,setExpandId] = useState(null);
   const [editProj,setEditProj] = useState(null); // null | "new" | proj
@@ -2244,11 +2252,38 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
                   proj.client&&h("div",{style:{fontSize:10,color:SUB,marginTop:1}},proj.client)
                 ),
                 h("td",{style:{fontSize:11,color:SUB}},proj.jobName||"—"),
-                h("td",null,h(StatusPill,{status:proj.status})),
+                h("td",{onClick:e=>e.stopPropagation()},
+                  inlineEdit&&inlineEdit.projId===proj.id&&inlineEdit.field==="status"
+                    ? h("div",{style:{display:"flex",gap:4,alignItems:"center"}},
+                        h("select",{autoFocus:true,value:inlineEdit.value,
+                          onChange:e=>setInlineEdit(f=>({...f,value:e.target.value})),
+                          onKeyDown:e=>{if(e.key==="Escape")cancelInlineEdit();},
+                          style:{fontSize:11,padding:"3px 6px",borderRadius:6,border:"1px solid "+LINE,outline:"none"}},
+                          STATUSES.map(s=>h("option",{key:s,value:s},s))
+                        ),
+                        h("button",{onClick:saveInlineEdit,title:"Save",style:{background:"#16A34A",color:"#FFF",border:"none",borderRadius:4,width:20,height:20,cursor:"pointer",fontSize:11,lineHeight:1,flexShrink:0}},"✓"),
+                        h("button",{onClick:cancelInlineEdit,title:"Cancel",style:{background:"none",color:DIM,border:"none",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}},"✕")
+                      )
+                    : h("div",{onClick:e=>{e.stopPropagation();setInlineEdit({projId:proj.id,field:"status",value:proj.status});},style:{cursor:"pointer",display:"inline-block"}},
+                        h(StatusPill,{status:proj.status})
+                      )
+                ),
                 h("td",{style:{fontSize:11,color:SUB}},crew.map(e=>e.name).join(", ")||"—"),
                 h("td",{className:"r",style:{fontSize:11,color:hrs>0?"#1a1a1a":DIM}},hrs>0?fmtHrs(hrs):"—"),
                 h("td",{className:"r",style:{fontSize:11,color:labor>0?"#1a1a1a":DIM}},labor>0?fmtCost(labor):"—"),
-                h("td",{className:"r",style:{fontSize:12,fontWeight:sale>0?500:400,color:sale>0?NAVY:DIM}},sale>0?"$"+sale.toLocaleString():"—"),
+                h("td",{className:"r",onClick:e=>e.stopPropagation()},
+                  inlineEdit&&inlineEdit.projId===proj.id&&inlineEdit.field==="salePrice"
+                    ? h("div",{style:{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}},
+                        h("input",{type:"number",autoFocus:true,value:inlineEdit.value,
+                          onChange:e=>setInlineEdit(f=>({...f,value:e.target.value})),
+                          onKeyDown:e=>{if(e.key==="Enter")saveInlineEdit();if(e.key==="Escape")cancelInlineEdit();},
+                          style:{width:80,fontSize:12,padding:"3px 6px",borderRadius:6,border:"1px solid "+LINE,outline:"none",textAlign:"right"}}),
+                        h("button",{onClick:saveInlineEdit,title:"Save",style:{background:"#16A34A",color:"#FFF",border:"none",borderRadius:4,width:20,height:20,cursor:"pointer",fontSize:11,lineHeight:1,flexShrink:0}},"✓"),
+                        h("button",{onClick:cancelInlineEdit,title:"Cancel",style:{background:"none",color:DIM,border:"none",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}},"✕")
+                      )
+                    : h("span",{onClick:e=>{e.stopPropagation();setInlineEdit({projId:proj.id,field:"salePrice",value:String(sale||"")});},
+                        style:{cursor:"pointer",fontSize:12,fontWeight:sale>0?500:400,color:sale>0?NAVY:DIM}},sale>0?"$"+sale.toLocaleString():"—")
+                ),
                 h("td",{className:"r",style:{fontSize:11,color:pmts>0?"#2d7a4f":DIM}},pmts>0?fmtCost(pmts):"—"),
                 h("td",{className:"r",style:{fontSize:11,fontWeight:owing>0?500:400,color:owing>0?GOLD:DIM}},owing>0?fmtCost(owing):"—"),
                 h("td",{className:"r",style:{fontSize:11,fontWeight:500,color:profit>=0?"#2d7a4f":"#c0392b"}},(profit<0?"-":"")+fmtCost(Math.abs(profit))),

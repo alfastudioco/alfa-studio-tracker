@@ -3034,6 +3034,8 @@ function VendorsTabNew({vendors,setVendors,cogs,fmtCost,T}) {
 function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
   const [range,setRange] = useState("week");
   const [offset,setOffset] = useState(0);
+  const [customStart,setCustomStart] = useState("");
+  const [customEnd,setCustomEnd] = useState("");
   const [showImport,setShowImport] = useState(false);
   const [viewLogEmp,setViewLogEmp] = useState(null);
 
@@ -3047,6 +3049,8 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
     const d=new Date(); d.setHours(0,0,0,0);
     if(range==="week"){ const day=d.getDay()||7; d.setDate(d.getDate()-day+1+offset*7); return [d.getTime(),d.getTime()+7*86400000]; }
     if(range==="month"){ const s=new Date(d.getFullYear(),d.getMonth()+offset,1); const e=new Date(d.getFullYear(),d.getMonth()+1+offset,0,23,59,59); return [s.getTime(),e.getTime()]; }
+    if(range==="year"){ const s=new Date(d.getFullYear()+offset,0,1); const e=new Date(d.getFullYear()+offset,11,31,23,59,59); return [s.getTime(),e.getTime()]; }
+    if(range==="custom"){ const s=customStart?new Date(customStart).getTime():0; const e=customEnd?new Date(customEnd+"T23:59:59").getTime():now+86400000*1000; return [s,e]; }
     return [0,now+86400000*1000];
   }
   const [rStart,rEnd]=getRangeBounds();
@@ -3068,14 +3072,19 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Hours"),h("div",{className:"val"},fmtHrs(totalHrs))),
       h("div",{className:"stat-card"},h("div",{className:"lbl"},"Total Labor"),h("div",{className:"val gold"},"$"+Math.round(totalEarned).toLocaleString()))
     ),
-    h("div",{style:{display:"flex",gap:6,alignItems:"center",marginBottom:12}},
+    h("div",{style:{display:"flex",gap:6,alignItems:"center",marginBottom:customStart||customEnd||range==="custom"?8:12,flexWrap:"wrap"}},
       h("div",{className:"filter-tabs"},
-        ["week","month","all"].map(r=>h("button",{key:r,className:"ftab"+(range===r?" active":""),onClick:()=>{setRange(r);setOffset(0);}},r==="week"?"Week":r==="month"?"Month":"All Time"))
+        [["week","Week"],["month","Month"],["year","Year"],["all","All Time"],["custom","Custom"]].map(([r,l])=>h("button",{key:r,className:"ftab"+(range===r?" active":""),onClick:()=>{setRange(r);setOffset(0);}},l))
       ),
-      range!=="all"&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o-1)},"←"),
-      range!=="all"&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o+1)},"→"),
+      (range==="week"||range==="month"||range==="year")&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o-1)},"←"),
+      (range==="week"||range==="month"||range==="year")&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o+1)},"→"),
       h("div",{style:{flex:1}}),
       h("button",{className:"btn-primary",onClick:()=>setShowImport(true)},"+ Import from Spreadsheet")
+    ),
+    range==="custom"&&h("div",{style:{display:"flex",gap:8,alignItems:"center",marginBottom:12}},
+      h("input",{type:"date",value:customStart,onChange:e=>setCustomStart(e.target.value),style:{background:SURF,border:"1px solid "+LINE,borderRadius:6,color:NAVY,padding:"6px 10px",fontSize:12,outline:"none"}}),
+      h("span",{style:{fontSize:12,color:DIM}},"to"),
+      h("input",{type:"date",value:customEnd,onChange:e=>setCustomEnd(e.target.value),style:{background:SURF,border:"1px solid "+LINE,borderRadius:6,color:NAVY,padding:"6px 10px",fontSize:12,outline:"none"}})
     ),
     h("div",{style:{background:SURF,borderRadius:12,border:"0.5px solid "+LINE,overflow:"hidden"}},
       h("table",{className:"tbl"},

@@ -3155,6 +3155,7 @@ function App() {
   const [toast,setToast]       = useState(null);
   const [stale,setStale]       = useState(false);
   const baselineHash = useRef(null);
+  const lastActivity = useRef(Date.now());
   // Who's currently clocked in is derived from entries (synced with Supabase),
   // not tracked as separate local state - otherwise a second device (or the
   // same device after a reload) has no way to know someone's already on the
@@ -3200,12 +3201,32 @@ function App() {
       const h=await fetchSelfHash();
       if(h!=null && h!==baselineHash.current) setStale(true);
     }
-    const iv=setInterval(check, 5*60*1000);
+    function markActive(){ lastActivity.current=Date.now(); }
+    const activityEvents=["mousedown","keydown","touchstart"];
+    activityEvents.forEach(ev=>document.addEventListener(ev,markActive,{passive:true}));
+    // Checking every 60s (was 5min) so a tab left open and untouched - the
+    // exact case where a human will never see the banner to click Refresh -
+    // notices it's outdated quickly instead of silently resaving stale data
+    // for minutes at a time.
+    const iv=setInterval(check, 60*1000);
     function onVisible(){ if(document.visibilityState==="visible") check(); }
     document.addEventListener("visibilitychange",onVisible);
     window.addEventListener("focus",check);
-    return ()=>{ cancelled=true; clearInterval(iv); document.removeEventListener("visibilitychange",onVisible); window.removeEventListener("focus",check); };
+    return ()=>{ cancelled=true; clearInterval(iv); document.removeEventListener("visibilitychange",onVisible); window.removeEventListener("focus",check); activityEvents.forEach(ev=>document.removeEventListener(ev,markActive)); };
   },[]);
+
+  useEffect(()=>{
+    // Once a tab knows it's running outdated code, auto-reload as soon as
+    // it's been idle a few seconds - an abandoned/unattended tab (nobody
+    // there to click "Refresh Now") self-heals instead of indefinitely
+    // running stale save logic. A tab someone is actively using keeps
+    // showing the banner and only reloads once they pause.
+    if(!stale) return;
+    const iv=setInterval(()=>{
+      if(Date.now()-lastActivity.current>15000) window.location.reload();
+    }, 3000);
+    return ()=>clearInterval(iv);
+  },[stale]);
 
   useEffect(()=>{
     (async()=>{
@@ -3360,7 +3381,7 @@ function App() {
   const T={text:NAVY,sub:SUB,dim:DIM,green:"#2d7a4f",amber:GOLD,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2",bg:BG};
 
   const staleBanner = stale && h("div",{style:{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:"#c0392b",color:"#fff",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:14,fontSize:13,fontWeight:600,flexWrap:"wrap",textAlign:"center"}},
-    "⚠ A newer version of this app is available — saving on this tab risks overwriting recent changes.",
+    "⚠ A newer version of this app is available — this tab will refresh automatically once idle.",
     h("button",{onClick:()=>window.location.reload(),style:{background:"#fff",color:"#c0392b",border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700,cursor:"pointer",flexShrink:0}},"Refresh Now")
   );
 

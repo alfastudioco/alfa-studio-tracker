@@ -221,7 +221,16 @@ async function fetchSelfHash() {
 // Every id here is a Date.now() timestamp, so "recent" vs "stale" is just
 // id age — no separate bookkeeping needed.
 const MERGE_GRACE_MS = 60000;
-function mergeById(local, server) {
+// `recentEdits` (optional) is a Map<id, savedAtMs> of ids this tab itself
+// just saved - see diffChangedItems below, which is what populates it. It
+// protects an EXISTING record the same way `pending` above protects a
+// brand-new one: without it, an edit that's still in flight to the server
+// gets silently reverted (and then re-persisted, permanently overwriting
+// the edit) the instant a poll tick reads the server a moment too early
+// and sees the pre-edit content. This is exactly how a saved change can
+// vanish - the browser that made the edit shows it fine right up until
+// its own next poll quietly puts the old value back.
+function mergeById(local, server, recentEdits) {
   const localById = new Map(local.map(x=>[String(x.id),x]));
   const serverIds = new Set(server.map(x=>String(x.id)));
   const now = Date.now();
@@ -238,13 +247,23 @@ function mergeById(local, server) {
   // poll instead of only on real edits - the same bug this file exists to
   // prevent, just recurring every 30s instead of on every edit).
   const merged = server.map(item=>{
-    const localItem = localById.get(String(item.id));
-    return (localItem && JSON.stringify(localItem)===JSON.stringify(item)) ? localItem : item;
+    const id = String(item.id);
+    const localItem = localById.get(id);
+    if(!localItem) return item;
+    if(JSON.stringify(localItem)===JSON.stringify(item)) return localItem;
+    if(recentEdits){
+      const editedAt = recentEdits.get(id);
+      if(editedAt!=null){
+        if(now-editedAt < MERGE_GRACE_MS) return localItem;
+        recentEdits.delete(id); // grace window passed - stop protecting it
+      }
+    }
+    return item;
   });
   return [...pending, ...merged];
 }
-function mergeGroupedById(localGrouped, serverFlat) {
-  const merged = mergeById(Object.values(localGrouped).flat(), serverFlat);
+function mergeGroupedById(localGrouped, serverFlat, recentEdits) {
+  const merged = mergeById(Object.values(localGrouped).flat(), serverFlat, recentEdits);
   const obj = {};
   merged.forEach(i=>{ if(!obj[i.projId]) obj[i.projId]=[]; obj[i.projId].push(i); });
   return obj;
@@ -279,9 +298,16 @@ function mergeProjDetails(local, serverRows) {
 // stale copy of some OTHER item could still overwrite a more recent edit
 // to it made elsewhere. `ref` holds a Map of id -> item as of the last run;
 // only items whose reference differs (edited, or new) are returned.
-function diffChangedItems(ref, flatItems) {
+function diffChangedItems(ref, flatItems, recentEdits) {
   const prev = ref.current;
   const changed = flatItems.filter(item=>prev.get(item.id)!==item);
+  // Stamp every id we're about to save so mergeById/mergeGroupedById can
+  // recognize a stale poll response racing this save and ignore it instead
+  // of reverting the edit - see mergeById above.
+  if(recentEdits){
+    const now = Date.now();
+    changed.forEach(item=>recentEdits.set(String(item.id), now));
+  }
   ref.current = new Map(flatItems.map(item=>[item.id,item]));
   return changed;
 }
@@ -3184,6 +3210,15 @@ function App() {
   const prevEntriesFlat = useRef(new Map());
   const prevClientsFlat = useRef(new Map());
   const prevVendorsFlat = useRef(new Map());
+  // ids this tab just saved, so the poll can't revert them - see mergeById
+  const recentEmpEdits = useRef(new Map());
+  const recentProjEdits = useRef(new Map());
+  const recentEntryEdits = useRef(new Map());
+  const recentClientEdits = useRef(new Map());
+  const recentVendorEdits = useRef(new Map());
+  const recentCogsEdits = useRef(new Map());
+  const recentNotesEdits = useRef(new Map());
+  const recentPaymentsEdits = useRef(new Map());
 
   function load(k,def){try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}}
   function fmtHrs(ms){const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000);return h+"h"+(m>0?" "+m+"m":"");}
@@ -3275,15 +3310,15 @@ function App() {
         ]);
         if(e&&e.length>0){
           const fixed=e.map(sb=>{const def=DEFAULT_EMPS.find(x=>x.id===sb.id);return(!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb;});
-          setEmps(prev=>mergeById(prev,fixed));
+          setEmps(prev=>mergeById(prev,fixed,recentEmpEdits.current));
         }
-        if(p&&p.length>0)setProjs(prev=>mergeById(prev,p));
-        if(en&&en.length>0)setEntries(prev=>mergeById(prev,en));
-        if(cg&&cg.length>0)setCogs(prev=>mergeGroupedById(prev,cg));
-        if(cl&&cl.length>0)setClients(prev=>mergeById(prev,cl));
-        if(vn&&vn.length>0)setVendors(prev=>mergeById(prev,vn));
-        if(pn&&pn.length>0)setProjNotes(prev=>mergeGroupedById(prev,pn));
-        if(pp&&pp.length>0)setProjPayments(prev=>mergeGroupedById(prev,pp));
+        if(p&&p.length>0)setProjs(prev=>mergeById(prev,p,recentProjEdits.current));
+        if(en&&en.length>0)setEntries(prev=>mergeById(prev,en,recentEntryEdits.current));
+        if(cg&&cg.length>0)setCogs(prev=>mergeGroupedById(prev,cg,recentCogsEdits.current));
+        if(cl&&cl.length>0)setClients(prev=>mergeById(prev,cl,recentClientEdits.current));
+        if(vn&&vn.length>0)setVendors(prev=>mergeById(prev,vn,recentVendorEdits.current));
+        if(pn&&pn.length>0)setProjNotes(prev=>mergeGroupedById(prev,pn,recentNotesEdits.current));
+        if(pp&&pp.length>0)setProjPayments(prev=>mergeGroupedById(prev,pp,recentPaymentsEdits.current));
         if(co&&co.length>0)setClientOrder(co.map(i=>i.name));
         const pdR=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
         if(pdR.length>0)setProjDetails(prev=>mergeProjDetails(prev,pdR));
@@ -3292,14 +3327,14 @@ function App() {
     return()=>clearInterval(poll);
   },[dbReady]);
 
-  useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}if(!dbReady||emps.length===0)return;const changed=diffChangedItems(prevEmpsFlat,emps);if(changed.length>0)dbSave("employees",changed);},[emps]);
-  useEffect(()=>{try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}if(isFirstRender.current.projs){isFirstRender.current.projs=false;prevProjsFlat.current=new Map(projs.map(p=>[p.id,p]));return;}const changed=diffChangedItems(prevProjsFlat,projs);if(changed.length>0)dbSave("projects",changed);},[projs]);
-  useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}if(isFirstRender.current.entries){isFirstRender.current.entries=false;prevEntriesFlat.current=new Map(entries.map(e=>[e.id,e]));return;}const changed=diffChangedItems(prevEntriesFlat,entries);if(changed.length>0)dbSave("entries",changed);},[entries]);
-  useEffect(()=>{if(!dbReady||clients.length===0)return;const changed=diffChangedItems(prevClientsFlat,clients);if(changed.length>0)dbSave("clients",changed);},[clients]);
-  useEffect(()=>{if(!dbReady||vendors.length===0)return;const changed=diffChangedItems(prevVendorsFlat,vendors);if(changed.length>0)dbSave("vendors",changed);},[vendors]);
-  useEffect(()=>{if(!dbReady||Object.keys(cogs).length===0)return;const flat=Object.values(cogs).flat();const changed=diffChangedItems(prevCogsFlat,flat);if(changed.length>0)dbSave("cogs",changed);},[cogs]);
-  useEffect(()=>{if(!dbReady||Object.keys(projNotes).length===0)return;const flat=Object.values(projNotes).flat();const changed=diffChangedItems(prevNotesFlat,flat);if(changed.length>0)dbSave("projnotes",changed);},[projNotes]);
-  useEffect(()=>{if(!dbReady||Object.keys(projPayments).length===0)return;const flat=Object.values(projPayments).flat();const changed=diffChangedItems(prevPaymentsFlat,flat);if(changed.length>0)dbSave("projpayments",changed);},[projPayments]);
+  useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}if(!dbReady||emps.length===0)return;const changed=diffChangedItems(prevEmpsFlat,emps,recentEmpEdits.current);if(changed.length>0)dbSave("employees",changed);},[emps]);
+  useEffect(()=>{try{localStorage.setItem("alfa_projs",JSON.stringify(projs));}catch{}if(isFirstRender.current.projs){isFirstRender.current.projs=false;prevProjsFlat.current=new Map(projs.map(p=>[p.id,p]));return;}const changed=diffChangedItems(prevProjsFlat,projs,recentProjEdits.current);if(changed.length>0)dbSave("projects",changed);},[projs]);
+  useEffect(()=>{try{localStorage.setItem("alfa_entries",JSON.stringify(entries));}catch{}if(isFirstRender.current.entries){isFirstRender.current.entries=false;prevEntriesFlat.current=new Map(entries.map(e=>[e.id,e]));return;}const changed=diffChangedItems(prevEntriesFlat,entries,recentEntryEdits.current);if(changed.length>0)dbSave("entries",changed);},[entries]);
+  useEffect(()=>{if(!dbReady||clients.length===0)return;const changed=diffChangedItems(prevClientsFlat,clients,recentClientEdits.current);if(changed.length>0)dbSave("clients",changed);},[clients]);
+  useEffect(()=>{if(!dbReady||vendors.length===0)return;const changed=diffChangedItems(prevVendorsFlat,vendors,recentVendorEdits.current);if(changed.length>0)dbSave("vendors",changed);},[vendors]);
+  useEffect(()=>{if(!dbReady||Object.keys(cogs).length===0)return;const flat=Object.values(cogs).flat();const changed=diffChangedItems(prevCogsFlat,flat,recentCogsEdits.current);if(changed.length>0)dbSave("cogs",changed);},[cogs]);
+  useEffect(()=>{if(!dbReady||Object.keys(projNotes).length===0)return;const flat=Object.values(projNotes).flat();const changed=diffChangedItems(prevNotesFlat,flat,recentNotesEdits.current);if(changed.length>0)dbSave("projnotes",changed);},[projNotes]);
+  useEffect(()=>{if(!dbReady||Object.keys(projPayments).length===0)return;const flat=Object.values(projPayments).flat();const changed=diffChangedItems(prevPaymentsFlat,flat,recentPaymentsEdits.current);if(changed.length>0)dbSave("projpayments",changed);},[projPayments]);
   useEffect(()=>{if(!dbReady||clientOrder.length===0)return;dbSave("clientorder",clientOrder.map(n=>({name:n})));},[clientOrder]);
   useEffect(()=>{
     if(!dbReady||Object.keys(projDetails).length===0)return;

@@ -2265,6 +2265,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
             h("th",null,"Assigned"),
             h("th",{className:"r"},"Hours"),
             h("th",{className:"r"},"Labor"),
+            h("th",{className:"r"},"Costs"),
             h("th",{className:"r"},"Sale"),
             h("th",{className:"r"},"Deposit"),
             h("th",{className:"r"},"Owing"),
@@ -2274,7 +2275,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
           )
         ),
         h("tbody",null,
-          filtered.length===0 && h("tr",null,h("td",{colSpan:12,style:{textAlign:"center",padding:"40px",color:DIM}},
+          filtered.length===0 && h("tr",null,h("td",{colSpan:13,style:{textAlign:"center",padding:"40px",color:DIM}},
             search?"No projects match your search.":"No projects.")),
           filtered.map(proj=>{
             const isExp = expandId===proj.id;
@@ -2316,6 +2317,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
                 h("td",{style:{fontSize:11,color:SUB}},crew.map(e=>e.name).join(", ")||"—"),
                 h("td",{className:"r",style:{fontSize:11,color:hrs>0?"#1a1a1a":DIM}},hrs>0?fmtHrs(hrs):"—"),
                 h("td",{className:"r",style:{fontSize:11,color:labor>0?"#1a1a1a":DIM}},labor>0?fmtCost(labor):"—"),
+                h("td",{className:"r",style:{fontSize:11,color:ct.total>0?"#1a1a1a":DIM}},ct.total>0?fmtCost(ct.total):"—"),
                 h("td",{className:"r",onClick:e=>e.stopPropagation()},
                   inlineEdit&&inlineEdit.projId===proj.id&&inlineEdit.field==="salePrice"
                     ? h("div",{style:{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}},
@@ -2342,7 +2344,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
               ),
               // Expanded detail row
               isExp && h("tr",{key:proj.id+"-exp",className:"exp-row"},
-                h("td",{colSpan:12,className:"exp-panel"},
+                h("td",{colSpan:13,className:"exp-panel"},
                   h("div",{style:{padding:"16px 20px"}},
                     // 8-action grid
                     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:6,marginBottom:16}},

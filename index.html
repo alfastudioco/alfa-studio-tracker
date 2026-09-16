@@ -377,6 +377,15 @@ function fmtHrs(ms){
   return mins>0?`${hrs}h ${mins}m`:`${hrs}h`;
 }
 function fmtTime(ms){return new Date(ms).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});}
+// Longest real clock-in/clock-out shift in the actual entry history is
+// ~10.7h - a still-open entry older than this wasn't a long shift, it's a
+// forgotten clock-out (phone died, tab closed, whatever) that the kiosk flow
+// left dangling. Only used by clockIn/clockOut below to decide when to stop
+// treating an open entry as "still active" - NOT a general "this entry is
+// too long" check, since manually-entered hours (via +Add Time) can
+// legitimately be long (e.g. a multi-day away job) and must never be
+// second-guessed by a duration threshold.
+const STALE_ENTRY_MS = 16*3600000;
 function fmtDate(ms){return new Date(ms).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"});}
 function dayKey(ms){const d=new Date(ms);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function dayLabel(key){
@@ -543,7 +552,8 @@ function WorkerLogCard({emp,entries,projs,onDelete}){
               h("span",{style:{fontSize:12,color:T.sub,minWidth:90,flexShrink:0}},fmtDate(e.start)),
               h("span",{style:{fontSize:11,color:T.dim,flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
               h("span",{style:{flex:1}}),
-              h("span",{style:{fontSize:13,fontWeight:600,color:T.text}},fmtHrs(e.end-e.start)),
+              e.needsReview&&h("span",{title:"Auto-closed after a missed clock-out - needs a manual correction",style:{fontSize:12,cursor:"help"}},"⚠"),
+              h("span",{style:{fontSize:13,fontWeight:600,color:e.needsReview?"#c0392b":T.text}},fmtHrs(e.end-e.start)),
               h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:16,padding:"0 2px",lineHeight:1}},"×")
             ))
           )
@@ -1031,7 +1041,8 @@ function ProjEmpLog({entries, emps, onDelete}) {
               h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
               h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
               h("span",{style:{flex:1}}),
-              h("span",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},fmtHrs(e.end-e.start)),
+              e.needsReview&&h("span",{title:"Auto-closed after a missed clock-out - needs a manual correction",style:{fontSize:12,cursor:"help"}},"⚠"),
+              h("span",{style:{fontSize:13,fontWeight:600,color:e.needsReview?"#c0392b":"#1C1917"}},fmtHrs(e.end-e.start)),
               h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
             )
           )
@@ -3364,20 +3375,45 @@ function App() {
   },[proposals]);
 
   function clockIn(empId,projId){
-    if(entries.some(e=>e.empId===empId&&e.end==null)){
+    const open=entries.find(e=>e.empId===empId&&e.end==null);
+    if(open && Date.now()-open.start<STALE_ENTRY_MS){
       setToast({msg:"Already clocked in"});
       setTimeout(()=>setToast(null),2800);
       return;
     }
-    const entry={id:Date.now(),empId,projId,start:Date.now(),end:null};
-    setEntries(p=>[...p,entry]);
+    const now=Date.now();
+    const entry={id:now,empId,projId,start:now,end:null};
+    // `open` here is a leftover from a forgotten clock-out (phone died, tab
+    // closed, shift just never ended in the app) - it's been sitting open
+    // longer than any real shift ever runs. Close it at a capped length
+    // instead of leaving it open, so the NEXT clock-out (today's, or
+    // whenever someone next touches this) can't silently stretch it into a
+    // multi-day entry the way every corrupted historical entry was created.
+    // Capped, not deleted, so the real hours the office already knows about
+    // aren't lost outright - `needsReview` marks it so the office can find
+    // and manually correct it (see WorkerLogCard/ProjEmpLog), without
+    // relying on duration alone - a legitimately long *manual* entry (e.g. a
+    // multi-day away job added via +Add Time) must never get flagged just
+    // for being long.
+    setEntries(p=>{
+      const next=open?p.map(e=>e.id===open.id?{...e,end:open.start+STALE_ENTRY_MS,needsReview:true}:e):p;
+      return [...next,entry];
+    });
     const emp=emps.find(e=>e.id===empId);const proj=projs.find(p=>p.id===projId);
     setToast({msg:"+ "+emp?.name+" clocked in - "+proj?.name});
     setTimeout(()=>setToast(null),2800);
   }
   function clockOut(empId){
     const a=activeFor[empId];if(!a)return;
-    setEntries(p=>p.map(e=>e.id===a.entryId?{...e,end:Date.now()}:e));
+    const elapsed=Date.now()-a.start;
+    // Same guard as clockIn: a Clock Out pressed days after the matching
+    // Clock In means the clock-out that was supposed to happen back then
+    // never did - don't record it as one giant multi-day shift just because
+    // this is the first time anyone touched it since. Cap it and mark it
+    // needsReview so the office can find and manually correct it.
+    const stale=elapsed>STALE_ENTRY_MS;
+    const end=stale?a.start+STALE_ENTRY_MS:Date.now();
+    setEntries(p=>p.map(e=>e.id===a.entryId?(stale?{...e,end,needsReview:true}:{...e,end}):e));
     const emp=emps.find(e=>e.id===empId);
     setToast({msg:"+ "+emp?.name+" clocked out"});
     setTimeout(()=>setToast(null),2800);

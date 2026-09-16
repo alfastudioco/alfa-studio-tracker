@@ -745,6 +745,12 @@ function CogsVendorList({items, onEdit, onDelete}) {
                   (item.invoiceNo?"#"+item.invoiceNo+" · ":"")+item.date
                 )
               ),
+              item.fileUrl&&h("button",{onClick:()=>window.open(item.fileUrl,"_blank"),title:"View "+(item.fileName||"receipt"),
+                style:{background:"none",border:"none",cursor:"pointer",padding:0,flexShrink:0,width:24,height:24,borderRadius:4,overflow:"hidden"}},
+                (item.fileType||"").startsWith("image")
+                  ? h("img",{src:item.fileUrl,style:{width:"100%",height:"100%",objectFit:"cover"}})
+                  : h("span",{style:{fontSize:14}},"📎")
+              ),
               h("span",{style:{fontSize:13,fontWeight:700,color:"#2563EB",flexShrink:0}},"$"+Number(item.amount).toFixed(2)),
               h("button",{onClick:()=>onEdit(item),style:{background:"none",border:"none",color:"#A8A29E",cursor:"pointer",fontSize:13,padding:"0 4px",flexShrink:0}},"✏"),
               h("button",{onClick:()=>onDelete(item),style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",flexShrink:0}},"×")
@@ -769,6 +775,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
   const [confirmCogs, setConfirmCogs] = React.useState(null); // item to delete
   const [scanPreview, setScanPreview] = React.useState(null); // base64 image
   const [scanError, setScanError] = React.useState("");
+  const [invoiceFile, setInvoiceFile] = React.useState(null); // {url,name,type} once uploaded to Storage
 
   async function handleInvoiceUpload(e) {
     const file = e.target.files[0];
@@ -777,33 +784,28 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
     try {
       const isPDF = file.type === "application/pdf";
 
-      // For PDFs: render first page to canvas, then use as image
-      // For images: read directly
-      let base64, mediaType;
-
+      // Local preview only - the file actually kept and made viewable later
+      // is the untouched original uploaded below, not this downscaled copy.
       if (isPDF) {
-        // Use PDF.js to render the first page as an image
+        // Use PDF.js to render the first page as an image, if available
         const pdfjsLib = window.pdfjsLib;
-        if (!pdfjsLib) throw new Error("PDF reader not loaded");
-
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({scale: 2.0});
-        const canvas = document.createElement("canvas");
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({canvasContext: canvas.getContext("2d"), viewport}).promise;
-        base64 = canvas.toDataURL("image/jpeg", 0.9).split(",")[1];
-        mediaType = "image/jpeg";
-        setScanPreview("data:image/jpeg;base64," + base64);
+        if (pdfjsLib) {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({scale: 2.0});
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({canvasContext: canvas.getContext("2d"), viewport}).promise;
+          setScanPreview(canvas.toDataURL("image/jpeg", 0.9));
+        }
       } else {
-        // Compress image before sending — mobile photos can be 5-10MB
+        // Compress for the on-screen preview only — mobile photos can be 5-10MB
         const compressed = await new Promise((res,rej) => {
           const img = new Image();
           const url = URL.createObjectURL(file);
           img.onload = () => {
-            // Scale down to max 1200px on longest side
             const maxSize = 1200;
             let w = img.width, h = img.height;
             if (w > maxSize || h > maxSize) {
@@ -814,24 +816,28 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
             canvas.width = w; canvas.height = h;
             canvas.getContext("2d").drawImage(img, 0, 0, w, h);
             URL.revokeObjectURL(url);
-            res(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+            res(canvas.toDataURL("image/jpeg", 0.85));
           };
           img.onerror = rej;
           img.src = url;
         });
-        base64 = compressed;
-        mediaType = "image/jpeg";
-        setScanPreview("data:image/jpeg;base64," + base64);
+        setScanPreview(compressed);
       }
 
-      // Auto-scan is disabled: it previously called the Claude API directly from
-      // the browser with a hardcoded key, which exposed that key to anyone loading
-      // this (public) site. Re-enabling this needs a backend proxy that holds the
-      // key server-side instead of shipping it to the client.
-      throw new Error("Auto-scan is temporarily disabled");
+      // Auto-scan (AI read of the invoice) is disabled: it previously called
+      // the Claude API directly from the browser with a hardcoded key, which
+      // exposed that key to anyone loading this (public) site. The file
+      // itself is still uploaded and kept below - only the auto-fill is gone.
+      setScanError("Auto-read unavailable — fill in the details below manually. Your file is still saved.");
+
+      const ext = file.name.split(".").pop()||"bin";
+      const fileId = Date.now()+Math.random();
+      const path = "cogs/"+projId+"/"+fileId+"."+ext;
+      const url = await uploadFile("project-files", path, file, file.type);
+      setInvoiceFile({url, name:file.name, type:file.type});
     } catch(err) {
-      setScanError("Could not read: "+(err.message||"unknown error")+". Please fill in manually.");
-      console.error("Invoice scan error:", err);
+      setScanError("Could not save file: "+(err.message||"unknown error")+". Please fill in manually.");
+      console.error("Invoice upload error:", err);
     }
     setScanning(false);
   }
@@ -846,17 +852,24 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
   async function save() {
     if(!form.desc.trim()||!form.amount||isNaN(+form.amount)||+form.amount<=0) return;
-    const item = {id:editId||Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||""};
+    const item = {id:editId||Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"",
+      ...(invoiceFile?{fileUrl:invoiceFile.url,fileName:invoiceFile.name,fileType:invoiceFile.type}:{})};
     setCogs(p=>({...p,[projId]: editId
       ? (p[projId]||[]).map(i=>i.id===editId?item:i)
       : [...(p[projId]||[]), item]
     }));
-    setForm(blank); setEditId(null);
+    setForm(blank); setEditId(null); setInvoiceFile(null); setScanPreview(null); setScanError("");
     const ok = await dbSave("cogs",[item]);
     if(!ok) alert("⚠ This cost was saved on your screen but failed to sync to the server — check your internet connection. If it's still showing after a refresh, it saved; if not, re-enter it.");
   }
   function del(id){ setCogs(p=>({...p,[projId]:(p[projId]||[]).filter(i=>i.id!==id)})); setConfirmCogs(null); dbDeleteIds("cogs",[id]); }
-  function edit(item){ setForm({desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date,invoiceNo:item.invoiceNo||""}); setEditId(item.id); }
+  function edit(item){
+    setForm({desc:item.desc,amount:String(item.amount),vendor:item.vendor||"",date:item.date,invoiceNo:item.invoiceNo||""});
+    setEditId(item.id);
+    // Carry the existing receipt forward so re-saving an edit (the upload UI
+    // is hidden while editing) doesn't silently drop it.
+    setInvoiceFile(item.fileUrl?{url:item.fileUrl,name:item.fileName,type:item.fileType}:null);
+  }
   function addQuickVendor(){
     if(!quickVendor.trim()) return;
     const name=quickVendor.trim();
@@ -981,7 +994,7 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
 
       // Save/cancel
       h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
-        editId&&h("button",{onClick:()=>{setEditId(null);setForm(blank);},style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+        editId&&h("button",{onClick:()=>{setEditId(null);setForm(blank);setInvoiceFile(null);},style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
         h("button",{onClick:save,style:{borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700,padding:"7px 20px",background:"#1C1917",color:"#FFF",border:"none"}},editId?"✓ Update":"✓ Add")
       )
     ),
@@ -1757,6 +1770,7 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
   const [scanError, setScanError] = React.useState("");
   const [form, setForm] = React.useState({desc:"", amount:"", vendor:"", date:new Date().toISOString().slice(0,10), invoiceNo:""});
   const [saved, setSaved] = React.useState(false);
+  const [invoiceFile, setInvoiceFile] = React.useState(null); // {url,name,type} once uploaded to Storage
   const inp = {width:"100%",background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box"};
   const lbl = txt => h("div",{style:{fontSize:10,fontWeight:700,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},txt);
 
@@ -1765,25 +1779,18 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
     if(!file) return;
     setScanning(true); setScanError("");
     try {
-      const compressed = await new Promise((res,rej)=>{
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.onload = ()=>{
-          const maxSize=1200; let w=img.width,h=img.height;
-          if(w>maxSize||h>maxSize){ if(w>h){h=Math.round(h*maxSize/w);w=maxSize;}else{w=Math.round(w*maxSize/h);h=maxSize;} }
-          const canvas=document.createElement("canvas"); canvas.width=w; canvas.height=h;
-          canvas.getContext("2d").drawImage(img,0,0,w,h);
-          URL.revokeObjectURL(url); res(canvas.toDataURL("image/jpeg",0.85).split(",")[1]);
-        };
-        img.onerror=rej; img.src=url;
-      });
-      // Auto-scan is disabled: it previously called the Claude API directly from
-      // the browser with a hardcoded key, which exposed that key to anyone loading
-      // this (public) site. Re-enabling this needs a backend proxy that holds the
-      // key server-side instead of shipping it to the client.
-      throw new Error("disabled");
+      // Auto-scan (AI read of the receipt) is disabled: it previously called
+      // the Claude API directly from the browser with a hardcoded key, which
+      // exposed that key to anyone loading this (public) site. The file
+      // itself is still uploaded and kept below - only the auto-fill is gone.
+      const ext = file.name.split(".").pop()||"bin";
+      const fileId = Date.now()+Math.random();
+      const path = "cogs/"+projId+"/"+fileId+"."+ext;
+      const url = await uploadFile("project-files", path, file, file.type);
+      setInvoiceFile({url, name:file.name, type:file.type});
+      setScanError("Auto-read unavailable — fill in the details below manually. Your file is still saved.");
     } catch(err) {
-      setScanError("Could not read receipt — fill in manually.");
+      setScanError("Could not save file: "+(err.message||"unknown error")+". Please fill in manually.");
     }
     setScanning(false);
     e.target.value="";
@@ -1791,7 +1798,8 @@ function ReceiptSheet({info, cogs, setCogs, vendors, onClose}) {
 
   async function save() {
     if(!form.amount||!+form.amount) return;
-    const item = {id:Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", uploadedBy:empName};
+    const item = {id:Date.now(), projId, desc:form.desc, amount:+form.amount, vendor:form.vendor, date:form.date, invoiceNo:form.invoiceNo||"", uploadedBy:empName,
+      ...(invoiceFile?{fileUrl:invoiceFile.url,fileName:invoiceFile.name,fileType:invoiceFile.type}:{})};
     setCogs(p=>({...p,[projId]:[...(p[projId]||[]),item]}));
     setSaved(true);
     const ok = await dbSave("cogs",[item]);

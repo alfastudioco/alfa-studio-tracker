@@ -2078,6 +2078,47 @@ function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,proj
   );
 }
 
+//  -- NeedsReviewPanel (entries clockIn/clockOut auto-capped after a missed
+//  clock-out - see STALE_ENTRY_MS) -- surfaces every flagged entry app-wide
+//  in one place instead of requiring someone to expand each project's Time
+//  Log or each employee's Payroll card to notice one.
+function NeedsReviewPanel({entries, setEntries, emps, projs, onClose}) {
+  const flagged = entries.filter(e=>e.needsReview).sort((a,b)=>b.start-a.start);
+  function del(id) {
+    setEntries(p=>p.filter(x=>x.id!==id));
+    dbDeleteIds("entries",[id]);
+  }
+  return h("div",{className:"sheet-bg",onClick:onClose},
+    h("div",{className:"sheet",onClick:e=>e.stopPropagation(),style:{maxWidth:640,padding:"0 16px 16px"}},
+      h("div",{className:"sheet-handle"}),
+      h("div",{style:{fontSize:16,fontWeight:700,margin:"14px 0 4px"}},"Needs Review"),
+      h("div",{style:{fontSize:12,color:"#78716C",marginBottom:14}},
+        "These clock-in entries were auto-capped after a missed clock-out, so the hours shown almost certainly aren't the real hours worked. Delete each one and re-add the correct hours (via +Add Time in the project's Time Log)."),
+
+      flagged.length===0&&h("div",{style:{fontSize:13,color:"#78716C",padding:"24px 0",textAlign:"center"}},"Nothing needs review."),
+
+      flagged.map(e=>{
+        const emp=emps.find(x=>x.id===e.empId);
+        const proj=projs.find(p=>p.id===e.projId);
+        return h("div",{key:e.id,style:{display:"flex",gap:8,alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F0EDE8"}},
+          h("div",{style:{width:8,height:8,borderRadius:"50%",background:(emp&&emp.color)||"#999",flexShrink:0}}),
+          h("div",{style:{flex:1,minWidth:0}},
+            h("div",{style:{fontSize:12,fontWeight:600,color:"#1C1917",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+              (emp?emp.name:"Unknown")+" — "+(proj?proj.name:"Unknown project")),
+            h("div",{style:{fontSize:11,color:"#A8A29E"}},fmtDate(e.start)+" · "+fmtTime(e.start)+"–"+fmtTime(e.end))
+          ),
+          h("div",{style:{fontSize:13,fontWeight:700,color:"#c0392b",flexShrink:0}},fmtHrs(e.end-e.start)),
+          h("button",{onClick:()=>del(e.id),title:"Delete - re-add the correct hours via +Add Time",style:{fontSize:20,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
+        );
+      }),
+
+      h("div",{style:{marginTop:16,textAlign:"right"}},
+        h("button",{onClick:onClose,style:{borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,background:"#1C1917",color:"#FFF",border:"none",cursor:"pointer"}},"Done")
+      )
+    )
+  );
+}
+
 function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDetails,setProjDetails,
   projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,
   fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}) {
@@ -2103,8 +2144,10 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
   const [confirmDel,setConfirmDel] = useState(null);
   const [uploading,setUploading]   = useState(false);
   const [showRecovery,setShowRecovery] = useState(false);
+  const [showReview,setShowReview] = useState(false);
 
   const orphanCount = ORPHAN_KEYS.reduce((s,k)=>s+(projPayments[k]||[]).length+(projNotes[k]||[]).length,0);
+  const reviewCount = entries.filter(e=>e.needsReview).length;
 
   const clientNames = [...new Set(projs.map(p=>p.client).filter(Boolean))].sort();
   const jobNames    = [...new Set(projs.map(p=>p.jobName).filter(Boolean))].sort();
@@ -2251,7 +2294,9 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
       ),
       h("button",{className:"btn-primary",onClick:()=>openEdit("new")},"+ Project"),
       orphanCount>0&&h("button",{onClick:()=>setShowRecovery(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",whiteSpace:"nowrap"}},
-        "⚠ "+orphanCount+" Unassigned — Recover")
+        "⚠ "+orphanCount+" Unassigned — Recover"),
+      reviewCount>0&&h("button",{onClick:()=>setShowReview(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",whiteSpace:"nowrap"}},
+        "⚠ "+reviewCount+" Need Review")
     ),
 
     // Table
@@ -2547,7 +2592,8 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
     confirmDel&&h(ConfirmDialog,{msg:"Delete "+confirmDel.name+"?",onConfirm:()=>delProj(confirmDel.id),onCancel:()=>setConfirmDel(null)}),
 
     // ── Recovery panel ──
-    showRecovery&&h(RecoveryPanel,{projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose:()=>setShowRecovery(false)})
+    showRecovery&&h(RecoveryPanel,{projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose:()=>setShowRecovery(false)}),
+    showReview&&h(NeedsReviewPanel,{entries,setEntries,emps,projs,onClose:()=>setShowReview(false)})
   );
 }
 
@@ -3085,11 +3131,14 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
   const [customEnd,setCustomEnd] = useState("");
   const [showImport,setShowImport] = useState(false);
   const [viewLogEmp,setViewLogEmp] = useState(null);
+  const [showReview,setShowReview] = useState(false);
 
   function deleteEntry(entry) {
     setEntries(p=>p.filter(x=>x.id!==entry.id));
     dbDeleteIds("entries",[entry.id]);
   }
+
+  const reviewCount = entries.filter(e=>e.needsReview).length;
 
   const now = Date.now();
   function getRangeBounds() {
@@ -3126,6 +3175,8 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
       (range==="week"||range==="month"||range==="year")&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o-1)},"←"),
       (range==="week"||range==="month"||range==="year")&&h("button",{className:"btn-ghost",style:{padding:"4px 10px"},onClick:()=>setOffset(o=>o+1)},"→"),
       h("div",{style:{flex:1}}),
+      reviewCount>0&&h("button",{onClick:()=>setShowReview(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",whiteSpace:"nowrap"}},
+        "⚠ "+reviewCount+" Need Review"),
       h("button",{className:"btn-primary",onClick:()=>setShowImport(true)},"+ Import from Spreadsheet")
     ),
     range==="custom"&&h("div",{style:{display:"flex",gap:8,alignItems:"center",marginBottom:12}},
@@ -3169,7 +3220,9 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
 
     viewLogEmp&&h(Sheet,{title:viewLogEmp.name+" — Time Log",onClose:()=>setViewLogEmp(null)},
       h(WorkerLogCard,{emp:viewLogEmp,entries:entries.filter(e=>e.empId===viewLogEmp.id),projs,onDelete:deleteEntry})
-    )
+    ),
+
+    showReview&&h(NeedsReviewPanel,{entries,setEntries,emps,projs,onClose:()=>setShowReview(false)})
   );
 }
 
@@ -3346,6 +3399,33 @@ function App() {
       }catch(e){}
     },30000);
     return()=>clearInterval(poll);
+  },[dbReady]);
+
+  useEffect(()=>{
+    if(!dbReady) return;
+    // clockIn/clockOut only cap a stale open entry when someone actually
+    // presses a button for that employee - if nobody touches it, the open
+    // entry (and the live elapsed-time counter on the worker page) just
+    // keeps growing forever with no ceiling, which is exactly what made a
+    // genuinely-forgotten clock-in show an impossible "27 hours and
+    // counting" on the shop floor. Checking here independently of any
+    // click closes it out (capped + flagged for review) within a minute of
+    // crossing STALE_ENTRY_MS, the same way a manual Clock Out would.
+    const iv=setInterval(()=>{
+      setEntries(p=>{
+        const now=Date.now();
+        let changed=false;
+        const next=p.map(e=>{
+          if(e.end==null && now-e.start>STALE_ENTRY_MS){
+            changed=true;
+            return {...e,end:e.start+STALE_ENTRY_MS,needsReview:true};
+          }
+          return e;
+        });
+        return changed?next:p;
+      });
+    },60000);
+    return()=>clearInterval(iv);
   },[dbReady]);
 
   useEffect(()=>{try{localStorage.setItem("alfa_emps",JSON.stringify(emps));}catch{}if(!dbReady||emps.length===0)return;const changed=diffChangedItems(prevEmpsFlat,emps,recentEmpEdits.current);if(changed.length>0)dbSave("employees",changed);},[emps]);

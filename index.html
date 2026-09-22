@@ -332,6 +332,8 @@ const COLORS = ["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA
 const ROLES = ["Master Carpenter","Finisher","Assembler","CNC Operator","Apprentice","Project Manager","Installer","Shop Hand"];
 const STATUSES = ["Needs Quote","Not Started","In Progress","On Hold","Completed"];
 const SC = {"Needs Quote":"#2563EB","Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
+const MATERIAL_STATUSES = ["Needed","Ordered","Received"];
+const MATERIAL_STATUS_STYLE = {Needed:{bg:"#FEF3C7",fg:"#92400E"},Ordered:{bg:"#DBEAFE",fg:"#1E40AF"},Received:{bg:"#DCFCE7",fg:"#166534"}};
 
 const T = {
   bg:"#F8F7F4", surf:"#FFFFFF", border:"#E5E2DC", line:"#F0EDE8",
@@ -1018,6 +1020,140 @@ function CogsSheet({projId, proj, cogs, setCogs, vendors, onClose, onBudgetChang
   );
 }
 
+//  -- MaterialsSheet: per-project "still need to buy" checklist. Distinct
+//  from CogsSheet (actual, already-paid expenses with receipts) - this is
+//  forward-looking and has no money-spent implications until someone later
+//  logs the real purchase as a Cost.
+function MaterialsSheet({projId, proj, materials, setMaterials, vendors, onClose}) {
+  const items = materials[projId] || [];
+  const blank = {desc:"", qty:"", vendor:"", estCost:""};
+  const [form,setForm] = React.useState(blank);
+  const [confirmDel,setConfirmDel] = React.useState(null);
+
+  const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:8,color:"#1C1917",padding:"9px 11px",fontSize:13,outline:"none",boxSizing:"border-box",width:"100%"};
+  const lbl = txt => h("div",{style:{fontSize:10,fontWeight:600,color:"#78716C",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:4}},txt);
+
+  function add(){
+    if(!form.desc.trim()) return;
+    const item = {id:Date.now(), projId, desc:form.desc.trim(), qty:form.qty.trim(), vendor:form.vendor, estCost:+form.estCost||0, status:"Needed", createdAt:Date.now()};
+    setMaterials(p=>({...p,[projId]:[...(p[projId]||[]),item]}));
+    setForm(blank);
+  }
+  function cycleStatus(item){
+    const i = MATERIAL_STATUSES.indexOf(item.status);
+    const next = MATERIAL_STATUSES[(i+1)%MATERIAL_STATUSES.length];
+    setMaterials(p=>({...p,[projId]:(p[projId]||[]).map(x=>x.id===item.id?{...x,status:next}:x)}));
+  }
+  function del(id){
+    setMaterials(p=>({...p,[projId]:(p[projId]||[]).filter(x=>x.id!==id)}));
+    setConfirmDel(null);
+    dbDeleteIds("materials",[id]);
+  }
+
+  const openTotal = items.filter(i=>i.status!=="Received").reduce((s,i)=>s+(+i.estCost||0),0);
+
+  return h(Sheet,{title:"Materials — "+proj.name, onClose},
+
+    items.length>0 && h("div",{style:{background:"#1C1917",borderRadius:12,padding:"14px 16px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+      h("span",{style:{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",letterSpacing:"0.06em",textTransform:"uppercase"}},"Still To Buy (Est.)"),
+      h("span",{style:{fontSize:20,fontWeight:800,color:"#60A5FA"}},"$"+openTotal.toFixed(2))
+    ),
+
+    //  -- Add form --
+    h("div",{style:{background:"#F8F7F4",border:"1.5px solid #E5E2DC",borderRadius:10,padding:12,marginBottom:14}},
+      h("div",{style:{fontSize:11,fontWeight:700,color:"#1C1917",marginBottom:10,letterSpacing:"0.04em"}},"+ NEW ITEM"),
+      h("div",{style:{marginBottom:8}},
+        lbl("Description"),
+        h("input",{type:"text",placeholder:'e.g. 3/4" walnut plywood',value:form.desc,onChange:e=>setForm(f=>({...f,desc:e.target.value})),style:inp})
+      ),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        h("div",null, lbl("Qty"),
+          h("input",{type:"text",placeholder:"e.g. 8 sheets",value:form.qty,onChange:e=>setForm(f=>({...f,qty:e.target.value})),style:inp})
+        ),
+        h("div",null, lbl("Est. Cost ($)"),
+          h("input",{type:"number",min:0,step:0.01,placeholder:"0.00",value:form.estCost,onChange:e=>setForm(f=>({...f,estCost:e.target.value})),style:inp})
+        )
+      ),
+      h("div",{style:{marginBottom:10}},
+        lbl("Vendor"),
+        h("select",{value:form.vendor,onChange:e=>setForm(f=>({...f,vendor:e.target.value})),style:{...inp,appearance:"none"}},
+          h("option",{value:""},"No vendor"),
+          vendors.map(v=>h("option",{key:v.id,value:v.name},v.name))
+        )
+      ),
+      h("div",{style:{display:"flex",justifyContent:"flex-end"}},
+        h("button",{onClick:add,style:{borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:700,padding:"7px 20px",background:"#1C1917",color:"#FFF",border:"none"}},"✓ Add")
+      )
+    ),
+
+    //  -- List --
+    items.length===0 && h("div",{style:{fontSize:12,color:"#A8A29E",textAlign:"center",padding:24}},"No materials added yet."),
+    items.length>0 && [...items].sort((a,b)=>(a.status==="Received")-(b.status==="Received")||b.createdAt-a.createdAt).map(item=>{
+      const st = MATERIAL_STATUS_STYLE[item.status]||MATERIAL_STATUS_STYLE.Needed;
+      return h("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #F0EDE8",opacity:item.status==="Received"?0.55:1}},
+        h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{fontSize:13,fontWeight:600,color:"#1C1917",textDecoration:item.status==="Received"?"line-through":"none"}},item.desc),
+          h("div",{style:{fontSize:11,color:"#78716C",marginTop:2}},[item.qty,item.vendor,item.estCost>0?"$"+Number(item.estCost).toFixed(2):null].filter(Boolean).join(" · ")||"—")
+        ),
+        h("button",{onClick:()=>cycleStatus(item),title:"Click to advance status",style:{fontSize:11,fontWeight:700,padding:"5px 10px",borderRadius:20,border:"none",cursor:"pointer",background:st.bg,color:st.fg,whiteSpace:"nowrap"}},item.status),
+        h("button",{onClick:()=>setConfirmDel(item),title:"Delete",style:{fontSize:18,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
+      );
+    }),
+
+    confirmDel&&h("div",{onClick:()=>setConfirmDel(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+      h("div",{onClick:e=>e.stopPropagation(),style:{background:"#FFF",borderRadius:16,padding:24,width:"100%",maxWidth:320,boxShadow:"0 8px 40px rgba(0,0,0,0.15)"}},
+        h("div",{style:{fontSize:16,fontWeight:700,color:"#1C1917",marginBottom:6}},"Delete item?"),
+        h("div",{style:{fontSize:13,color:"#78716C",marginBottom:20}},confirmDel.desc),
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>setConfirmDel(null),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,padding:"8px 16px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+          h("button",{onClick:()=>del(confirmDel.id),style:{borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,padding:"8px 16px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA"}},"Delete")
+        )
+      )
+    )
+  );
+}
+
+//  -- MaterialsToOrderPanel: shop-wide view across all projects, grouped by
+//  project, of everything not yet Received - see MaterialsSheet.
+function MaterialsToOrderPanel({materials, setMaterials, projs, onClose}) {
+  function cycleStatus(projId,item){
+    const i = MATERIAL_STATUSES.indexOf(item.status);
+    const next = MATERIAL_STATUSES[(i+1)%MATERIAL_STATUSES.length];
+    setMaterials(p=>({...p,[projId]:(p[projId]||[]).map(x=>x.id===item.id?{...x,status:next}:x)}));
+  }
+  const groups = Object.keys(materials)
+    .map(projId=>({projId, proj:projs.find(p=>String(p.id)===String(projId)), open:(materials[projId]||[]).filter(i=>i.status!=="Received")}))
+    .filter(g=>g.open.length>0)
+    .sort((a,b)=>(a.proj?a.proj.name:"").localeCompare(b.proj?b.proj.name:""));
+
+  return h("div",{className:"sheet-bg",onClick:onClose},
+    h("div",{className:"sheet",onClick:e=>e.stopPropagation(),style:{maxWidth:640,padding:"0 16px 16px"}},
+      h("div",{className:"sheet-handle"}),
+      h("div",{style:{fontSize:16,fontWeight:700,margin:"14px 0 4px"}},"Materials to Order"),
+      h("div",{style:{fontSize:12,color:"#78716C",marginBottom:14}},"Everything still Needed or Ordered, across every project."),
+
+      groups.length===0&&h("div",{style:{fontSize:13,color:"#78716C",padding:"24px 0",textAlign:"center"}},"Nothing left to order."),
+
+      groups.map(g=>h("div",{key:g.projId,style:{marginBottom:16}},
+        h("div",{style:{fontSize:12,fontWeight:700,color:"#1C1917",margin:"10px 0 6px"}},(g.proj?g.proj.name:"Unknown project")+" ("+g.open.length+")"),
+        g.open.map(item=>{
+          const st = MATERIAL_STATUS_STYLE[item.status]||MATERIAL_STATUS_STYLE.Needed;
+          return h("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid #F0EDE8"}},
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{fontSize:13,fontWeight:600,color:"#1C1917"}},item.desc),
+              h("div",{style:{fontSize:11,color:"#78716C",marginTop:2}},[item.qty,item.vendor,item.estCost>0?"$"+Number(item.estCost).toFixed(2):null].filter(Boolean).join(" · ")||"—")
+            ),
+            h("button",{onClick:()=>cycleStatus(g.projId,item),title:"Click to advance status",style:{fontSize:11,fontWeight:700,padding:"5px 10px",borderRadius:20,border:"none",cursor:"pointer",background:st.bg,color:st.fg,whiteSpace:"nowrap"}},item.status)
+          );
+        })
+      )),
+
+      h("div",{style:{marginTop:16,textAlign:"right"}},
+        h("button",{onClick:onClose,style:{borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,background:"#1C1917",color:"#FFF",border:"none",cursor:"pointer"}},"Done")
+      )
+    )
+  );
+}
 
 //  -- ProjEmpLog: groups project entries by employee with collapsible rows --
 function ProjEmpLog({entries, emps, onDelete}) {
@@ -2119,7 +2255,7 @@ function NeedsReviewPanel({entries, setEntries, emps, projs, onClose}) {
   );
 }
 
-function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDetails,setProjDetails,
+function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materials,setMaterials,projDetails,setProjDetails,
   projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,
   fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}) {
 
@@ -2141,6 +2277,8 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
   const [quickSheet,setQuickSheet] = useState(null); // {projId, section}
   const [addNoteId,setAddNoteId]   = useState(null);
   const [cogsSheet,setCogsSheet]   = useState(null);
+  const [materialsSheet,setMaterialsSheet] = useState(null);
+  const [showMaterials,setShowMaterials]   = useState(false);
   const [confirmDel,setConfirmDel] = useState(null);
   const [uploading,setUploading]   = useState(false);
   const [showRecovery,setShowRecovery] = useState(false);
@@ -2148,6 +2286,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
 
   const orphanCount = ORPHAN_KEYS.reduce((s,k)=>s+(projPayments[k]||[]).length+(projNotes[k]||[]).length,0);
   const reviewCount = entries.filter(e=>e.needsReview).length;
+  const materialsOpenCount = Object.values(materials).flat().filter(m=>m.status!=="Received").length;
 
   const clientNames = [...new Set(projs.map(p=>p.client).filter(Boolean))].sort();
   const jobNames    = [...new Set(projs.map(p=>p.jobName).filter(Boolean))].sort();
@@ -2323,6 +2462,8 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
         ))
       ),
       h("button",{className:"btn-primary",onClick:()=>openEdit("new")},"+ Project"),
+      materialsOpenCount>0&&h("button",{onClick:()=>setShowMaterials(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",whiteSpace:"nowrap"}},
+        "📦 "+materialsOpenCount+" To Order"),
       orphanCount>0&&h("button",{onClick:()=>setShowRecovery(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",whiteSpace:"nowrap"}},
         "⚠ "+orphanCount+" Unassigned — Recover"),
       reviewCount>0&&h("button",{onClick:()=>setShowReview(true),style:{borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:600,padding:"7px 14px",background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",whiteSpace:"nowrap"}},
@@ -2401,7 +2542,16 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
                         style:{cursor:"pointer",fontSize:12,fontWeight:sale>0?500:400,color:sale>0?NAVY:DIM}},sale>0?"$"+sale.toLocaleString():"—")
                 ),
                 h("td",{className:"r",style:{fontSize:11,color:pmts>0?"#2d7a4f":DIM}},pmts>0?fmtCost(pmts):"—"),
-                h("td",{className:"r",style:{fontSize:11,fontWeight:owing>0?500:400,color:owing>0?GOLD:DIM}},owing>0?fmtCost(owing):"—"),
+                h("td",{className:"r"},
+                  owing<=0 ? h("span",{style:{fontSize:11,color:DIM}},"—")
+                  : proj.status==="Completed"
+                    // A completed job still owing money is a bigger deal than
+                    // an in-progress one (which is expected to have a balance)
+                    // - a solid red badge instead of the normal gold text so
+                    // it can't be scanned past.
+                    ? h("span",{style:{fontSize:11,fontWeight:700,color:"#FFF",background:"#DC2626",borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}},fmtCost(owing))
+                    : h("span",{style:{fontSize:11,fontWeight:500,color:GOLD}},fmtCost(owing))
+                ),
                 h("td",{className:"r",style:{fontSize:11,fontWeight:500,color:profit>=0?"#2d7a4f":"#c0392b"}},(profit<0?"-":"")+fmtCost(Math.abs(profit))),
                 h("td",{className:"r",style:{fontSize:11,color:marginPct===null?DIM:(marginPct>=0?"#2d7a4f":"#c0392b")}},marginPct===null?"—":marginPct.toFixed(0)+"%"),
                 h("td",{onClick:e=>e.stopPropagation()},
@@ -2415,8 +2565,8 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
               isExp && h("tr",{key:proj.id+"-exp",className:"exp-row"},
                 h("td",{colSpan:13,className:"exp-panel"},
                   h("div",{style:{padding:"16px 20px"}},
-                    // 8-action grid
-                    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:6,marginBottom:16}},
+                    // 9-action grid
+                    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(9,1fr)",gap:6,marginBottom:16}},
                       [
                         {icon:"ti-photo",label:"Photo",    fn:()=>setAddPhotoId(proj.id)},
                         {icon:"ti-note",label:"Note",     fn:()=>setAddNoteId(proj.id)},
@@ -2424,6 +2574,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
                         {icon:"ti-folder",label:"Files",   fn:()=>setQuickSheet({projId:proj.id,section:"files"})},
                         {icon:"ti-clock",label:"Time",    fn:()=>setQuickSheet({projId:proj.id,section:"timelog"})},
                         {icon:"ti-coins",label:"Costs",   fn:()=>setCogsSheet(proj.id)},
+                        {icon:"ti-package",label:"Materials",fn:()=>setMaterialsSheet(proj.id)},
                         {icon:"ti-credit-card",label:"Pay",fn:()=>setQuickSheet({projId:proj.id,section:"payments"})},
                         {icon:"ti-list",label:"Log",      fn:()=>setQuickSheet({projId:proj.id,section:"timelog"})},
                       ].map(({icon,label,fn})=>
@@ -2468,7 +2619,12 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
             h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.costs>0?fmtCost(filteredTotals.costs):"—"),
             h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.sale>0?fmtCost(filteredTotals.sale):"—"),
             h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.pmts>0?fmtCost(filteredTotals.pmts):"—"),
-            h("td",{className:"r",style:{fontSize:11,color:filteredTotals.owing>0?GOLD:NAVY}},filteredTotals.owing>0?fmtCost(filteredTotals.owing):"—"),
+            h("td",{className:"r"},
+              filteredTotals.owing<=0 ? h("span",{style:{fontSize:11,color:NAVY}},"—")
+              : filter==="Completed"
+                ? h("span",{style:{fontSize:11,fontWeight:700,color:"#FFF",background:"#DC2626",borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}},fmtCost(filteredTotals.owing))
+                : h("span",{style:{fontSize:11,color:GOLD}},fmtCost(filteredTotals.owing))
+            ),
             h("td",{className:"r",style:{fontSize:11,color:filteredTotals.profit>=0?"#2d7a4f":"#c0392b"}},(filteredTotals.profit<0?"-":"")+fmtCost(Math.abs(filteredTotals.profit))),
             h("td",{className:"r",style:{fontSize:11,color:filteredMarginPct===null?DIM:(filteredMarginPct>=0?"#2d7a4f":"#c0392b")}},filteredMarginPct===null?"—":filteredMarginPct.toFixed(0)+"%"),
             h("td",null)
@@ -2626,6 +2782,13 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
     // ── Cogs sheet ──
     cogsSheet&&h(CogsSheet,{projId:cogsSheet,proj:projs.find(p=>p.id===cogsSheet)||{},
       cogs,setCogs,vendors:[],onClose:()=>setCogsSheet(null),onBudgetChange:()=>{},onAddVendor:()=>{}}),
+
+    // ── Materials sheet ──
+    materialsSheet&&h(MaterialsSheet,{projId:materialsSheet,proj:projs.find(p=>p.id===materialsSheet)||{},
+      materials,setMaterials,vendors,onClose:()=>setMaterialsSheet(null)}),
+
+    // ── Materials to order (shop-wide) ──
+    showMaterials&&h(MaterialsToOrderPanel,{materials,setMaterials,projs,onClose:()=>setShowMaterials(false)}),
 
     // ── Confirm delete ──
     confirmDel&&h(ConfirmDialog,{msg:"Delete "+confirmDel.name+"?",onConfirm:()=>delProj(confirmDel.id),onCancel:()=>setConfirmDel(null)}),
@@ -3285,6 +3448,7 @@ function App() {
   const [projs,setProjs]       = useState(DEFAULT_PROJS);
   const [entries,setEntries]   = useState([]);
   const [cogs,setCogs]         = useState({});
+  const [materials,setMaterials] = useState({});
   const [clients,setClients]   = useState([]);
   const [vendors,setVendors]   = useState([]);
   const [projNotes,setProjNotes]       = useState({});
@@ -3316,6 +3480,7 @@ function App() {
   const isFirstRender = useRef({emps:true,projs:true,entries:true});
   const prevProjDetails = useRef({});
   const prevCogsFlat = useRef(new Map());
+  const prevMaterialsFlat = useRef(new Map());
   const prevNotesFlat = useRef(new Map());
   const prevPaymentsFlat = useRef(new Map());
   const prevEmpsFlat = useRef(new Map());
@@ -3330,6 +3495,7 @@ function App() {
   const recentClientEdits = useRef(new Map());
   const recentVendorEdits = useRef(new Map());
   const recentCogsEdits = useRef(new Map());
+  const recentMaterialsEdits = useRef(new Map());
   const recentNotesEdits = useRef(new Map());
   const recentPaymentsEdits = useRef(new Map());
 
@@ -3388,10 +3554,11 @@ function App() {
   useEffect(()=>{
     (async()=>{
       try{
-        const [e,p,en,cl,vn,cg,pn,co,pp]=await Promise.all([
+        const [e,p,en,cl,vn,cg,pn,co,pp,mt]=await Promise.all([
           dbLoad("employees"),dbLoad("projects"),dbLoad("entries"),
           dbLoad("clients"),dbLoad("vendors"),dbLoad("cogs"),
-          dbLoad("projnotes"),dbLoad("clientorder"),dbLoad("projpayments")
+          dbLoad("projnotes"),dbLoad("clientorder"),dbLoad("projpayments"),
+          dbLoad("materials")
         ]);
         if(e&&e.length>0){const merged=e.map(sb=>{const def=DEFAULT_EMPS.find(x=>x.id===sb.id);return(!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb;});setEmps(merged);const fix=merged.some((m,i)=>m.rate!==(e[i]&&e[i].rate));if(fix)dbSave("employees",merged);}
         else{setEmps(DEFAULT_EMPS);dbSave("employees",DEFAULT_EMPS);}
@@ -3403,6 +3570,7 @@ function App() {
         if(pn&&pn.length>0){const obj={};pn.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setProjNotes(obj);}
         if(co&&co.length>0)setClientOrder(co.map(i=>i.name));
         if(pp&&pp.length>0){const obj={};pp.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setProjPayments(obj);}
+        if(mt&&mt.length>0){const obj={};mt.forEach(i=>{if(!obj[i.projId])obj[i.projId]=[];obj[i.projId].push(i);});setMaterials(obj);}
         const pdRows=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
         if(pdRows.length>0)setProjDetails(prev=>mergeProjDetails(prev,pdRows));
         const pr=await dbLoad("proposals");
@@ -3416,10 +3584,11 @@ function App() {
     if(!dbReady)return;
     const poll=setInterval(async()=>{
       try{
-        const [e,p,en,cg,cl,vn,pn,pp,co]=await Promise.all([
+        const [e,p,en,cg,cl,vn,pn,pp,co,mt]=await Promise.all([
           dbLoad("employees"),dbLoad("projects"),dbLoad("entries"),
           dbLoad("cogs"),dbLoad("clients"),dbLoad("vendors"),
-          dbLoad("projnotes"),dbLoad("projpayments"),dbLoad("clientorder")
+          dbLoad("projnotes"),dbLoad("projpayments"),dbLoad("clientorder"),
+          dbLoad("materials")
         ]);
         if(e&&e.length>0){
           const fixed=e.map(sb=>{const def=DEFAULT_EMPS.find(x=>x.id===sb.id);return(!(+sb.rate>0)&&def&&def.rate>0)?{...sb,rate:def.rate}:sb;});
@@ -3432,6 +3601,7 @@ function App() {
         if(vn&&vn.length>0)setVendors(prev=>mergeById(prev,vn,recentVendorEdits.current));
         if(pn&&pn.length>0)setProjNotes(prev=>mergeGroupedById(prev,pn,recentNotesEdits.current));
         if(pp&&pp.length>0)setProjPayments(prev=>mergeGroupedById(prev,pp,recentPaymentsEdits.current));
+        if(mt&&mt.length>0)setMaterials(prev=>mergeGroupedById(prev,mt,recentMaterialsEdits.current));
         if(co&&co.length>0)setClientOrder(co.map(i=>i.name));
         const pdR=await fetch(SB_URL+"/rest/v1/projdetails?select=*",{method:"GET",mode:"cors",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}}).then(r=>r.json()).catch(()=>[]);
         if(pdR.length>0)setProjDetails(prev=>mergeProjDetails(prev,pdR));
@@ -3473,6 +3643,7 @@ function App() {
   useEffect(()=>{if(!dbReady||clients.length===0)return;const changed=diffChangedItems(prevClientsFlat,clients,recentClientEdits.current);if(changed.length>0)dbSave("clients",changed);},[clients]);
   useEffect(()=>{if(!dbReady||vendors.length===0)return;const changed=diffChangedItems(prevVendorsFlat,vendors,recentVendorEdits.current);if(changed.length>0)dbSave("vendors",changed);},[vendors]);
   useEffect(()=>{if(!dbReady||Object.keys(cogs).length===0)return;const flat=Object.values(cogs).flat();const changed=diffChangedItems(prevCogsFlat,flat,recentCogsEdits.current);if(changed.length>0)dbSave("cogs",changed);},[cogs]);
+  useEffect(()=>{if(!dbReady||Object.keys(materials).length===0)return;const flat=Object.values(materials).flat();const changed=diffChangedItems(prevMaterialsFlat,flat,recentMaterialsEdits.current);if(changed.length>0)dbSave("materials",changed);},[materials]);
   useEffect(()=>{if(!dbReady||Object.keys(projNotes).length===0)return;const flat=Object.values(projNotes).flat();const changed=diffChangedItems(prevNotesFlat,flat,recentNotesEdits.current);if(changed.length>0)dbSave("projnotes",changed);},[projNotes]);
   useEffect(()=>{if(!dbReady||Object.keys(projPayments).length===0)return;const flat=Object.values(projPayments).flat();const changed=diffChangedItems(prevPaymentsFlat,flat,recentPaymentsEdits.current);if(changed.length>0)dbSave("projpayments",changed);},[projPayments]);
   useEffect(()=>{if(!dbReady||clientOrder.length===0)return;dbSave("clientorder",clientOrder.map(n=>({name:n})));},[clientOrder]);
@@ -3686,7 +3857,7 @@ function App() {
           style:{fontSize:10,color:"rgba(255,255,255,0.5)",background:"rgba(255,255,255,0.08)",border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer"}},"Lock")
       )
     ),
-    adminTab==="projects"  && h(ProjectsTab,{projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}),
+    adminTab==="projects"  && h(ProjectsTab,{projs,setProjs,emps,entries,setEntries,cogs,setCogs,materials,setMaterials,projDetails,setProjDetails,projNotes,setProjNotes,projPayments,setProjPayments,clients,vendors,fmtHrs,fmtCost,entryCost,projCogsTotals,dbReady,T}),
     adminTab==="proposals" && h(ProposalsTabNew,{proposals,setProposals,clients,projs,projDetails,T}),
     adminTab==="crew"      && h(CrewTab,{emps,setEmps,entries,fmtHrs,fmtCost,T}),
     adminTab==="clients"   && h(ClientsTabNew,{clients,setClients,projs,fmtCost,entryCost,projCogsTotals,T}),

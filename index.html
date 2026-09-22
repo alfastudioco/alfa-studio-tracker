@@ -1161,9 +1161,26 @@ function MaterialsToOrderPanel({materials, setMaterials, projs, onClose}) {
 }
 
 //  -- ProjEmpLog: groups project entries by employee with collapsible rows --
-function ProjEmpLog({entries, emps, onDelete}) {
+function ProjEmpLog({entries, emps, onDelete, onEdit=()=>{}}) {
   const [open, setOpen] = React.useState({});
+  const [editId,setEditId] = React.useState(null);
+  const [editForm,setEditForm] = React.useState(null); // {date,start,end} while editing one entry
   const toggle = id => setOpen(p=>({...p,[id]:!p[id]}));
+  const editInp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:6,color:"#1C1917",padding:"5px 6px",fontSize:11,outline:"none"};
+
+  function startEdit(e) {
+    setEditId(e.id);
+    setEditForm({date:dayKey(e.start), start:timeKey(e.start), end:timeKey(e.end)});
+  }
+  function saveEdit(e) {
+    if(!editForm||!editForm.date||!editForm.start||!editForm.end) return;
+    const start = new Date(editForm.date+"T"+editForm.start+":00").getTime();
+    let end = new Date(editForm.date+"T"+editForm.end+":00").getTime();
+    if(end<=start) end += 86400000; // end time past midnight relative to start
+    onEdit(e,{start,end});
+    setEditId(null); setEditForm(null);
+  }
+  function cancelEdit() { setEditId(null); setEditForm(null); }
 
   // Group by employee
   const empMap = {};
@@ -1191,14 +1208,28 @@ function ProjEmpLog({entries, emps, onDelete}) {
         // Expanded individual entries
         isOpen&&h("div",{style:{paddingLeft:10,paddingTop:3}},
           g.items.map(e=>
-            h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:"1px solid #F0EDE8"}},
-              h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
-              h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
-              h("span",{style:{flex:1}}),
-              e.needsReview&&h("span",{title:"Auto-closed after a missed clock-out - needs a manual correction",style:{fontSize:12,cursor:"help"}},"⚠"),
-              h("span",{style:{fontSize:13,fontWeight:600,color:e.needsReview?"#c0392b":"#1C1917"}},fmtHrs(e.end-e.start)),
-              h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
-            )
+            editId===e.id
+              ? h("div",{key:e.id,onClick:ev=>ev.stopPropagation(),style:{padding:"8px",borderBottom:"1px solid #F0EDE8"}},
+                  h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}},
+                    h("input",{type:"date",value:editForm.date,onChange:ev=>setEditForm(f=>({...f,date:ev.target.value})),style:editInp}),
+                    h("input",{type:"time",value:editForm.start,onChange:ev=>setEditForm(f=>({...f,start:ev.target.value})),style:editInp}),
+                    h("span",{style:{fontSize:11,color:"#A8A29E",alignSelf:"center"}},"–"),
+                    h("input",{type:"time",value:editForm.end,onChange:ev=>setEditForm(f=>({...f,end:ev.target.value})),style:editInp})
+                  ),
+                  h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
+                    h("button",{onClick:cancelEdit,style:{borderRadius:6,cursor:"pointer",fontSize:11,padding:"4px 10px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+                    h("button",{onClick:()=>saveEdit(e),style:{borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,padding:"4px 12px",background:"#1C1917",color:"#FFF",border:"none"}},"✓ Save")
+                  )
+                )
+              : h("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderBottom:"1px solid #F0EDE8"}},
+                  h("span",{style:{fontSize:12,color:"#78716C",minWidth:90,flexShrink:0}},fmtDate(e.start)),
+                  h("span",{style:{fontSize:11,color:"#A8A29E",flexShrink:0}},fmtTime(e.start)+"–"+fmtTime(e.end)),
+                  h("span",{style:{flex:1}}),
+                  e.needsReview&&h("span",{title:"Auto-closed after a missed clock-out - needs a manual correction",style:{fontSize:12,cursor:"help"}},"⚠"),
+                  h("span",{style:{fontSize:13,fontWeight:600,color:e.needsReview?"#c0392b":"#1C1917"}},fmtHrs(e.end-e.start)),
+                  h("button",{onClick:ev=>{ev.stopPropagation();startEdit(e);},title:"Edit",style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:13,padding:"0 2px"}},"✏"),
+                  h("button",{onClick:ev=>{ev.stopPropagation();onDelete(e);},style:{background:"none",border:"none",color:"#D1C9C0",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}},"×")
+                )
           )
         )
       );
@@ -2471,6 +2502,12 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
     setEntries(p=>p.filter(x=>x.id!==entry.id));
     dbDeleteIds("entries",[entry.id]);
   }
+  function editTimeEntry(entry, patch) {
+    // A manual correction here means it's been reviewed - clear the flag so
+    // it drops out of the Needs Review list instead of still nagging about
+    // an entry someone just fixed.
+    setEntries(p=>p.map(x=>x.id===entry.id?{...x,...patch,needsReview:false}:x));
+  }
 
   // Quick-access thumbnails only ever checked f.url, so a legacy
   // base64-embedded file (f.data, no f.url) silently did nothing when
@@ -2841,7 +2878,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
                   )
                 : h("button",{onClick:()=>setAddTimeForm({empId:"",date:new Date().toISOString().slice(0,10),hours:""}),
                     style:{width:"100%",marginBottom:10,background:GOLD+"12",border:"1.5px dashed "+GOLD+"44",borderRadius:8,padding:"8px",fontSize:12,fontWeight:600,color:"#92600a",cursor:"pointer"}},"+ Add Time"),
-              h(ProjEmpLog,{entries:done,emps,onDelete:deleteTimeEntry,onEdit:()=>{}})
+              h(ProjEmpLog,{entries:done,emps,onDelete:deleteTimeEntry,onEdit:editTimeEntry})
             );
             if(quickSheet.section==="payments") return h(PaymentsPanel,{projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T:{text:NAVY,sub:SUB,dim:DIM,green:"#2d7a4f",amber:GOLD,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2"},line:LINE,faint:"#f8f6f2"});
             return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,

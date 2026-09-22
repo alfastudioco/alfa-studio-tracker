@@ -390,6 +390,11 @@ function fmtTime(ms){return new Date(ms).toLocaleTimeString([],{hour:"2-digit",m
 const STALE_ENTRY_MS = 16*3600000;
 function fmtDate(ms){return new Date(ms).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"});}
 function dayKey(ms){const d=new Date(ms);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+// <input type="time"> value for a timestamp, in local time - same local-time
+// convention as dayKey above (not toISOString, which is UTC and would shift
+// the displayed hour away from what the entry's Date.now()-based start
+// actually was).
+function timeKey(ms){const d=new Date(ms);return`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
 function dayLabel(key){
   const tk=dayKey(Date.now()),yk=dayKey(Date.now()-86400000);
   if(key===tk)return"Today"; if(key===yk)return"Yesterday";
@@ -2220,22 +2225,66 @@ function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,proj
 //  Log or each employee's Payroll card to notice one.
 function NeedsReviewPanel({entries, setEntries, emps, projs, onClose}) {
   const flagged = entries.filter(e=>e.needsReview).sort((a,b)=>b.start-a.start);
+  const [editId,setEditId] = React.useState(null);
+  const [editForm,setEditForm] = React.useState(null); // {date,start,end} while editing one flagged entry
+  const [addForm,setAddForm] = React.useState(null); // {empId,projId,date,hours} while the add-time form is open
+
+  const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:6,color:"#1C1917",padding:"6px 8px",fontSize:12,outline:"none",boxSizing:"border-box"};
+
   function del(id) {
     setEntries(p=>p.filter(x=>x.id!==id));
     dbDeleteIds("entries",[id]);
   }
+  function startEdit(e) {
+    setEditId(e.id);
+    setEditForm({date:dayKey(e.start), start:timeKey(e.start), end:timeKey(e.end)});
+  }
+  function saveEdit() {
+    if(!editForm||!editForm.date||!editForm.start||!editForm.end) return;
+    const start = new Date(editForm.date+"T"+editForm.start+":00").getTime();
+    let end = new Date(editForm.date+"T"+editForm.end+":00").getTime();
+    if(end<=start) end += 86400000; // end time past midnight relative to start
+    // Manually corrected here, so it's no longer an unreviewed auto-cap -
+    // clear the flag or it just reappears in this same list.
+    setEntries(p=>p.map(x=>x.id===editId?{...x,start,end,needsReview:false}:x));
+    setEditId(null); setEditForm(null);
+  }
+  function cancelEdit() { setEditId(null); setEditForm(null); }
+
+  function addEntry() {
+    if(!addForm||!addForm.empId||!addForm.projId||!addForm.hours||+addForm.hours<=0) return;
+    const ms = +addForm.hours*3600000;
+    const base = new Date(addForm.date+"T07:00:00").getTime();
+    setEntries(p=>[...p,{id:Date.now(),empId:+addForm.empId,projId:+addForm.projId,start:base,end:base+ms}]);
+    setAddForm(null);
+  }
+
   return h("div",{className:"sheet-bg",onClick:onClose},
     h("div",{className:"sheet",onClick:e=>e.stopPropagation(),style:{maxWidth:640,padding:"0 16px 16px"}},
       h("div",{className:"sheet-handle"}),
       h("div",{style:{fontSize:16,fontWeight:700,margin:"14px 0 4px"}},"Needs Review"),
       h("div",{style:{fontSize:12,color:"#78716C",marginBottom:14}},
-        "These clock-in entries were auto-capped after a missed clock-out, so the hours shown almost certainly aren't the real hours worked. Delete each one and re-add the correct hours (via +Add Time in the project's Time Log)."),
+        "These clock-in entries were auto-capped after a missed clock-out, so the hours shown almost certainly aren't the real hours worked. Edit each one to the correct time, or delete it and add a fresh entry below."),
 
       flagged.length===0&&h("div",{style:{fontSize:13,color:"#78716C",padding:"24px 0",textAlign:"center"}},"Nothing needs review."),
 
       flagged.map(e=>{
         const emp=emps.find(x=>x.id===e.empId);
         const proj=projs.find(p=>p.id===e.projId);
+        if(editId===e.id) return h("div",{key:e.id,style:{padding:"10px 0",borderBottom:"1px solid #F0EDE8"}},
+          h("div",{style:{fontSize:12,fontWeight:600,color:"#1C1917",marginBottom:8}},
+            (emp?emp.name:"Unknown")+" — "+(proj?proj.name:"Unknown project")),
+          h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}},
+            h("input",{type:"date",value:editForm.date,onChange:ev=>setEditForm(f=>({...f,date:ev.target.value})),style:inp}),
+            h("input",{type:"time",value:editForm.start,onChange:ev=>setEditForm(f=>({...f,start:ev.target.value})),style:inp}),
+            h("span",{style:{fontSize:12,color:"#A8A29E",alignSelf:"center"}},"–"),
+            h("input",{type:"time",value:editForm.end,onChange:ev=>setEditForm(f=>({...f,end:ev.target.value})),style:inp})
+          ),
+          h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+            h("button",{onClick:cancelEdit,style:{borderRadius:6,cursor:"pointer",fontSize:12,padding:"6px 12px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+            h("button",{onClick:saveEdit,style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 14px",background:"#1C1917",color:"#FFF",border:"none"}},"✓ Save")
+          )
+        );
         return h("div",{key:e.id,style:{display:"flex",gap:8,alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F0EDE8"}},
           h("div",{style:{width:8,height:8,borderRadius:"50%",background:(emp&&emp.color)||"#999",flexShrink:0}}),
           h("div",{style:{flex:1,minWidth:0}},
@@ -2244,9 +2293,35 @@ function NeedsReviewPanel({entries, setEntries, emps, projs, onClose}) {
             h("div",{style:{fontSize:11,color:"#A8A29E"}},fmtDate(e.start)+" · "+fmtTime(e.start)+"–"+fmtTime(e.end))
           ),
           h("div",{style:{fontSize:13,fontWeight:700,color:"#c0392b",flexShrink:0}},fmtHrs(e.end-e.start)),
-          h("button",{onClick:()=>del(e.id),title:"Delete - re-add the correct hours via +Add Time",style:{fontSize:20,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
+          h("button",{onClick:()=>startEdit(e),title:"Edit the correct time",style:{fontSize:13,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"✏"),
+          h("button",{onClick:()=>del(e.id),title:"Delete",style:{fontSize:20,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
         );
       }),
+
+      addForm
+        ? h("div",{style:{background:"#F8F7F4",border:"1.5px solid #E5E2DC",borderRadius:10,padding:12,marginTop:14}},
+            h("div",{style:{fontSize:11,fontWeight:700,color:"#1C1917",marginBottom:8,letterSpacing:"0.04em"}},"+ ADD TIME"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+              h("select",{value:addForm.empId,onChange:ev=>setAddForm(f=>({...f,empId:ev.target.value})),style:{...inp,width:"100%"}},
+                h("option",{value:""},"Employee…"),
+                emps.map(em=>h("option",{key:em.id,value:em.id},em.name))
+              ),
+              h("select",{value:addForm.projId,onChange:ev=>setAddForm(f=>({...f,projId:ev.target.value})),style:{...inp,width:"100%"}},
+                h("option",{value:""},"Project…"),
+                projs.map(pr=>h("option",{key:pr.id,value:pr.id},pr.name))
+              )
+            ),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+              h("input",{type:"date",value:addForm.date,onChange:ev=>setAddForm(f=>({...f,date:ev.target.value})),style:{...inp,width:"100%"}}),
+              h("input",{type:"number",min:0,step:0.25,placeholder:"Hours",value:addForm.hours,onChange:ev=>setAddForm(f=>({...f,hours:ev.target.value})),style:{...inp,width:"100%"}})
+            ),
+            h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+              h("button",{onClick:()=>setAddForm(null),style:{borderRadius:6,cursor:"pointer",fontSize:12,padding:"6px 12px",background:"transparent",color:"#78716C",border:"1px solid #E5E2DC"}},"Cancel"),
+              h("button",{onClick:addEntry,style:{borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 14px",background:"#1C1917",color:"#FFF",border:"none"}},"✓ Add")
+            )
+          )
+        : h("button",{onClick:()=>setAddForm({empId:"",projId:"",date:dayKey(Date.now()),hours:""}),
+            style:{width:"100%",marginTop:14,background:"#D97706"+"12",border:"1.5px dashed #D97706"+"44",borderRadius:8,padding:"8px",fontSize:12,fontWeight:600,color:"#92600a",cursor:"pointer"}},"+ Add Time"),
 
       h("div",{style:{marginTop:16,textAlign:"right"}},
         h("button",{onClick:onClose,style:{borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,background:"#1C1917",color:"#FFF",border:"none",cursor:"pointer"}},"Done")
@@ -3465,6 +3540,7 @@ function App() {
   const [pinInput,setPinInput] = useState("");
   const [pinError,setPinError] = useState("");
   const [toast,setToast]       = useState(null);
+  const [photoProj,setPhotoProj] = useState(null); // projId while the worker-kiosk photo gallery is open
   const [stale,setStale]       = useState(false);
   const baselineHash = useRef(null);
   const lastActivity = useRef(Date.now());
@@ -3805,12 +3881,17 @@ function App() {
                     const isActive=a&&a.projId===proj.id;
                     const elapsed=isActive?now2-a.start:0;
                     const hh=Math.floor(elapsed/3600000),mm=Math.floor((elapsed%3600000)/60000),ss=Math.floor((elapsed%60000)/1000);
-                    return h("div",{key:proj.id,style:{display:"flex",alignItems:"center",gap:12,marginBottom:8}},
+                    const images=((projDetails[String(proj.id)]||{}).files||[]).filter(f=>(f.type||"").startsWith("image"));
+                    return h("div",{key:proj.id,onClick:()=>images.length>0&&setPhotoProj(proj.id),
+                      style:{display:"flex",alignItems:"center",gap:12,marginBottom:8,cursor:images.length>0?"pointer":"default"}},
                       h("div",{style:{flex:1}},
-                        h("div",{style:{fontSize:13,fontWeight:500,color:NAVY}},proj.name),
+                        h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                          h("div",{style:{fontSize:13,fontWeight:500,color:NAVY}},proj.name),
+                          images.length>0&&h("span",{style:{fontSize:11,color:DIM}},"📷 "+images.length)
+                        ),
                         isActive&&h("div",{style:{fontSize:11,fontWeight:600,color:GOLD,fontVariantNumeric:"tabular-nums"}},String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0")+":"+String(ss).padStart(2,"0"))
                       ),
-                      h("button",{disabled:a&&!isActive,onClick:()=>isActive?clockOut(emp.id):clockIn(emp.id,proj.id),
+                      h("button",{disabled:a&&!isActive,onClick:e=>{e.stopPropagation();isActive?clockOut(emp.id):clockIn(emp.id,proj.id);},
                         style:{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:600,border:"none",cursor:a&&!isActive?"default":"pointer",
                           opacity:a&&!isActive?0.4:1,
                           background:isActive?"#ffebeb":"#fff8e6",color:isActive?"#c0392b":NAVY}},isActive?"Clock Out":"Clock In")
@@ -3821,6 +3902,20 @@ function App() {
         })
       );})()
     ),
+    // ── Photo gallery (tap a project row with photos to open) ──
+    photoProj&&(()=>{
+      const proj=projs.find(p=>p.id===photoProj);
+      const images=((projDetails[String(photoProj)]||{}).files||[]).filter(f=>(f.type||"").startsWith("image"));
+      return h("div",{onClick:()=>setPhotoProj(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:300,display:"flex",flexDirection:"column"}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(14px,env(safe-area-inset-top)) 16px 14px"}},
+          h("div",{style:{color:"#fff",fontSize:14,fontWeight:600}},proj?proj.name:"Photos"),
+          h("button",{onClick:()=>setPhotoProj(null),style:{background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:20,cursor:"pointer",padding:4}},"×")
+        ),
+        h("div",{onClick:e=>e.stopPropagation(),style:{overflowY:"auto",padding:"0 16px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}},
+          images.map(f=>h("img",{key:f.id,src:f.url||f.data,style:{width:"100%",aspectRatio:"4/3",borderRadius:8,objectFit:"cover"}}))
+        )
+      );
+    })(),
     toast&&h("div",{style:{position:"fixed",bottom:32,left:"50%",transform:"translateX(-50%)",background:NAVY,color:"#fff",borderRadius:12,padding:"10px 20px",fontSize:13,fontWeight:500,zIndex:200,whiteSpace:"nowrap"}},toast.msg)
   );
 

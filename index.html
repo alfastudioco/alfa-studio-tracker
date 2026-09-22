@@ -2181,7 +2181,17 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
       const np={id:Date.now(),...pf};
       setProjs(p=>[...p,np]);
     } else {
-      setProjs(p=>p.map(x=>x.id===editProj.id?{...x,...pf,updatedAt:Date.now()}:x));
+      // `editProj` is the snapshot captured when this modal was opened (see
+      // openEdit). Blindly spreading `pf` over the live record would carry
+      // that stale snapshot's copy of every field - including one like
+      // `status` someone else changed elsewhere (e.g. the quick inline
+      // pill) while this modal sat open - and silently stomp it back on
+      // save. Only patch fields actually edited in this modal.
+      const patch={};
+      Object.keys(pf).forEach(k=>{
+        if(JSON.stringify(pf[k])!==JSON.stringify(editProj[k])) patch[k]=pf[k];
+      });
+      setProjs(p=>p.map(x=>x.id===editProj.id?{...x,...patch,updatedAt:Date.now()}:x));
     }
     setEditProj(null);
   }

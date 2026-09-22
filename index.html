@@ -3541,6 +3541,7 @@ function App() {
   const [pinError,setPinError] = useState("");
   const [toast,setToast]       = useState(null);
   const [photoProj,setPhotoProj] = useState(null); // projId while the worker-kiosk photo gallery is open
+  const [photoIndex,setPhotoIndex] = useState(null); // index into that project's images while one is viewed full-size
   const [stale,setStale]       = useState(false);
   const baselineHash = useRef(null);
   const lastActivity = useRef(Date.now());
@@ -3882,7 +3883,7 @@ function App() {
                     const elapsed=isActive?now2-a.start:0;
                     const hh=Math.floor(elapsed/3600000),mm=Math.floor((elapsed%3600000)/60000),ss=Math.floor((elapsed%60000)/1000);
                     const images=((projDetails[String(proj.id)]||{}).files||[]).filter(f=>(f.type||"").startsWith("image"));
-                    return h("div",{key:proj.id,onClick:()=>images.length>0&&setPhotoProj(proj.id),
+                    return h("div",{key:proj.id,onClick:()=>{if(images.length>0){setPhotoProj(proj.id);setPhotoIndex(null);}},
                       style:{display:"flex",alignItems:"center",gap:12,marginBottom:8,cursor:images.length>0?"pointer":"default"}},
                       h("div",{style:{flex:1}},
                         h("div",{style:{display:"flex",alignItems:"center",gap:6}},
@@ -3906,14 +3907,29 @@ function App() {
     photoProj&&(()=>{
       const proj=projs.find(p=>p.id===photoProj);
       const images=((projDetails[String(photoProj)]||{}).files||[]).filter(f=>(f.type||"").startsWith("image"));
-      return h("div",{onClick:()=>setPhotoProj(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:300,display:"flex",flexDirection:"column"}},
+      const closeAll=()=>{setPhotoProj(null);setPhotoIndex(null);};
+      const viewing = photoIndex!=null ? images[photoIndex] : null;
+      return h("div",{onClick:closeAll,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:300,display:"flex",flexDirection:"column"}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(14px,env(safe-area-inset-top)) 16px 14px"}},
-          h("div",{style:{color:"#fff",fontSize:14,fontWeight:600}},proj?proj.name:"Photos"),
-          h("button",{onClick:()=>setPhotoProj(null),style:{background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:20,cursor:"pointer",padding:4}},"×")
+          h("div",{style:{color:"#fff",fontSize:14,fontWeight:600}},
+            viewing ? h("span",{onClick:e=>{e.stopPropagation();setPhotoIndex(null);},style:{cursor:"pointer"}},"‹ "+(proj?proj.name:"Photos")) : (proj?proj.name:"Photos")
+          ),
+          h("button",{onClick:closeAll,style:{background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:20,cursor:"pointer",padding:4}},"×")
         ),
-        h("div",{onClick:e=>e.stopPropagation(),style:{overflowY:"auto",padding:"0 16px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}},
-          images.map(f=>h("img",{key:f.id,src:f.url||f.data,style:{width:"100%",aspectRatio:"4/3",borderRadius:8,objectFit:"cover"}}))
-        )
+        viewing
+          // ── Single image, full-size, with prev/next ──
+          ? h("div",{onClick:e=>e.stopPropagation(),style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",padding:"0 8px 8px",minHeight:0}},
+              images.length>1&&h("button",{onClick:()=>setPhotoIndex(i=>(i-1+images.length)%images.length),
+                style:{position:"absolute",left:8,background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",width:40,height:40,borderRadius:"50%",fontSize:20,cursor:"pointer"}},"‹"),
+              h("img",{src:viewing.url||viewing.data,style:{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",borderRadius:8}}),
+              images.length>1&&h("button",{onClick:()=>setPhotoIndex(i=>(i+1)%images.length),
+                style:{position:"absolute",right:8,background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",width:40,height:40,borderRadius:"50%",fontSize:20,cursor:"pointer"}},"›")
+            )
+          // ── Grid ──
+          : h("div",{onClick:e=>e.stopPropagation(),style:{overflowY:"auto",padding:"0 16px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}},
+              images.map((f,i)=>h("img",{key:f.id,src:f.url||f.data,onClick:()=>setPhotoIndex(i),
+                style:{width:"100%",aspectRatio:"4/3",borderRadius:8,objectFit:"cover",cursor:"pointer"}}))
+            )
       );
     })(),
     toast&&h("div",{style:{position:"fixed",bottom:32,left:"50%",transform:"translateX(-50%)",background:NAVY,color:"#fff",borderRadius:12,padding:"10px 20px",fontSize:13,fontWeight:500,zIndex:200,whiteSpace:"nowrap"}},toast.msg)

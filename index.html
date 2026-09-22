@@ -2161,6 +2161,26 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
     return true;
   });
 
+  // Shared by each table row and the totals footer below, so the footer
+  // can never drift from what the rows actually show.
+  function rowMetrics(proj) {
+    const hrs = entries.filter(e=>e.end&&e.projId===proj.id).reduce((s,e)=>s+(e.end-e.start),0);
+    const labor = entryCost(proj.id);
+    const costs = projCogsTotals(proj.id).total;
+    const pmts = (projPayments[proj.id]||[]).reduce((s,x)=>s+(+x.amount||0),0);
+    const sale = +proj.salePrice||0;
+    const owing = sale-pmts;
+    const profit = sale-labor-costs;
+    return {hrs,labor,costs,sale,pmts,owing,profit};
+  }
+  const filteredTotals = filtered.reduce((acc,proj)=>{
+    const m=rowMetrics(proj);
+    acc.hrs+=m.hrs; acc.labor+=m.labor; acc.costs+=m.costs; acc.sale+=m.sale;
+    acc.pmts+=m.pmts; acc.owing+=m.owing; acc.profit+=m.profit;
+    return acc;
+  },{hrs:0,labor:0,costs:0,sale:0,pmts:0,owing:0,profit:0});
+  const filteredMarginPct = filteredTotals.sale>0 ? filteredTotals.profit/filteredTotals.sale*100 : null;
+
   // Stat cards
   const allProjs = projs;
   const totalSale   = allProjs.reduce((s,p)=>s+(+p.salePrice||0),0);
@@ -2334,13 +2354,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
             search?"No projects match your search.":"No projects.")),
           filtered.map(proj=>{
             const isExp = expandId===proj.id;
-            const hrs = entries.filter(e=>e.end&&e.projId===proj.id).reduce((s,e)=>s+(e.end-e.start),0);
-            const labor = entryCost(proj.id);
-            const ct = projCogsTotals(proj.id);
-            const pmts = (projPayments[proj.id]||[]).reduce((s,x)=>s+(+x.amount||0),0);
-            const sale = +proj.salePrice||0;
-            const owing = sale - pmts;
-            const profit = sale - labor - ct.total;
+            const {hrs,labor,costs,sale,pmts,owing,profit} = rowMetrics(proj);
             const marginPct = sale>0 ? profit/sale*100 : null;
             const files = (projDetails[String(proj.id)]||{}).files||[];
             const crew = emps.filter(e=>(proj.assignedTo||[]).includes(e.id));
@@ -2372,7 +2386,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
                 h("td",{style:{fontSize:11,color:SUB}},crew.map(e=>e.name).join(", ")||"—"),
                 h("td",{className:"r",style:{fontSize:11,color:hrs>0?"#1a1a1a":DIM}},hrs>0?fmtHrs(hrs):"—"),
                 h("td",{className:"r",style:{fontSize:11,color:labor>0?"#1a1a1a":DIM}},labor>0?fmtCost(labor):"—"),
-                h("td",{className:"r",style:{fontSize:11,color:ct.total>0?"#1a1a1a":DIM}},ct.total>0?fmtCost(ct.total):"—"),
+                h("td",{className:"r",style:{fontSize:11,color:costs>0?"#1a1a1a":DIM}},costs>0?fmtCost(costs):"—"),
                 h("td",{className:"r",onClick:e=>e.stopPropagation()},
                   inlineEdit&&inlineEdit.projId===proj.id&&inlineEdit.field==="salePrice"
                     ? h("div",{style:{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}},
@@ -2444,6 +2458,21 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,projDe
               )
             ];
           })
+        ),
+        filtered.length>0 && h("tfoot",null,
+          h("tr",{style:{fontWeight:700,background:BG,borderTop:"1.5px solid "+LINE}},
+            h("td",{colSpan:4,style:{fontSize:11,color:NAVY}},
+              "Totals — "+filtered.length+" project"+(filtered.length!==1?"s":"")),
+            h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.hrs>0?fmtHrs(filteredTotals.hrs):"—"),
+            h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.labor>0?fmtCost(filteredTotals.labor):"—"),
+            h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.costs>0?fmtCost(filteredTotals.costs):"—"),
+            h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.sale>0?fmtCost(filteredTotals.sale):"—"),
+            h("td",{className:"r",style:{fontSize:11,color:NAVY}},filteredTotals.pmts>0?fmtCost(filteredTotals.pmts):"—"),
+            h("td",{className:"r",style:{fontSize:11,color:filteredTotals.owing>0?GOLD:NAVY}},filteredTotals.owing>0?fmtCost(filteredTotals.owing):"—"),
+            h("td",{className:"r",style:{fontSize:11,color:filteredTotals.profit>=0?"#2d7a4f":"#c0392b"}},(filteredTotals.profit<0?"-":"")+fmtCost(Math.abs(filteredTotals.profit))),
+            h("td",{className:"r",style:{fontSize:11,color:filteredMarginPct===null?DIM:(filteredMarginPct>=0?"#2d7a4f":"#c0392b")}},filteredMarginPct===null?"—":filteredMarginPct.toFixed(0)+"%"),
+            h("td",null)
+          )
         )
       )
     ),

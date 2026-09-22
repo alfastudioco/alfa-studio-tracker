@@ -1161,8 +1161,8 @@ function MaterialsToOrderPanel({materials, setMaterials, projs, onClose}) {
 }
 
 //  -- ProjEmpLog: groups project entries by employee with collapsible rows --
-function ProjEmpLog({entries, emps, onDelete, onEdit=()=>{}}) {
-  const [open, setOpen] = React.useState({});
+function ProjEmpLog({entries, emps, onDelete, onEdit=()=>{}, initialOpenEmpId=null}) {
+  const [open, setOpen] = React.useState(()=>initialOpenEmpId?{[initialOpenEmpId]:true}:{});
   const [editId,setEditId] = React.useState(null);
   const [editForm,setEditForm] = React.useState(null); // {date,start,end} while editing one entry
   const toggle = id => setOpen(p=>({...p,[id]:!p[id]}));
@@ -1201,7 +1201,10 @@ function ProjEmpLog({entries, emps, onDelete, onEdit=()=>{}}) {
       return h("div",{key:g.emp?.id||"unknown",style:{marginBottom:4}},
         // Employee row — tap to expand
         h("div",{onClick:()=>g.emp&&toggle(g.emp.id),style:{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#F5F3F0",borderRadius:8,cursor:"pointer",borderLeft:"3px solid "+(g.emp?g.emp.color:"#888")}},
-          h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:g.emp?g.emp.color:"#888"}},g.emp?g.emp.name:"Unknown"),
+          h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:g.emp?g.emp.color:"#888",display:"flex",alignItems:"center",gap:5}},
+            g.emp?g.emp.name:"Unknown",
+            g.items.some(x=>x.needsReview)&&h("span",{title:"Has a punch that needs review",style:{fontSize:12,cursor:"help"}},"⚠")
+          ),
           h("span",{style:{fontSize:13,fontWeight:700,color:"#D97706"}},fmtHrs(g.ms)),
           h("span",{style:{fontSize:11,color:"#A8A29E",marginLeft:4}},isOpen?"▲":"▼")
         ),
@@ -2254,7 +2257,7 @@ function RecoveryPanel({projPayments,setProjPayments,projNotes,setProjNotes,proj
 //  clock-out - see STALE_ENTRY_MS) -- surfaces every flagged entry app-wide
 //  in one place instead of requiring someone to expand each project's Time
 //  Log or each employee's Payroll card to notice one.
-function NeedsReviewPanel({entries, setEntries, emps, projs, onClose}) {
+function NeedsReviewPanel({entries, setEntries, emps, projs, onClose, onViewInProject}) {
   const flagged = entries.filter(e=>e.needsReview).sort((a,b)=>b.start-a.start);
   const [editId,setEditId] = React.useState(null);
   const [editForm,setEditForm] = React.useState(null); // {date,start,end} while editing one flagged entry
@@ -2324,6 +2327,8 @@ function NeedsReviewPanel({entries, setEntries, emps, projs, onClose}) {
             h("div",{style:{fontSize:11,color:"#A8A29E"}},fmtDate(e.start)+" · "+fmtTime(e.start)+"–"+fmtTime(e.end))
           ),
           h("div",{style:{fontSize:13,fontWeight:700,color:"#c0392b",flexShrink:0}},fmtHrs(e.end-e.start)),
+          onViewInProject&&h("button",{onClick:()=>onViewInProject(e),title:"View this employee's punches on this project",
+            style:{fontSize:11,fontWeight:600,color:"#2563EB",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px",whiteSpace:"nowrap"}},"View in Project →"),
           h("button",{onClick:()=>startEdit(e),title:"Edit the correct time",style:{fontSize:13,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"✏"),
           h("button",{onClick:()=>del(e.id),title:"Delete",style:{fontSize:20,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
         );
@@ -2381,6 +2386,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
   const [pf,setPf]           = useState({name:"",client:"",status:"Not Started",deadline:"",assignedTo:[],salePrice:"",notes:"",jobName:""});
   const [addPhotoId,setAddPhotoId] = useState(null);
   const [quickSheet,setQuickSheet] = useState(null); // {projId, section}
+  const [focusEmpId,setFocusEmpId] = useState(null); // employee to pre-expand when the Time Log opens (deep-link from Needs Review)
   const [addNoteId,setAddNoteId]   = useState(null);
   const [cogsSheet,setCogsSheet]   = useState(null);
   const [materialsSheet,setMaterialsSheet] = useState(null);
@@ -2508,6 +2514,15 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
     // an entry someone just fixed.
     setEntries(p=>p.map(x=>x.id===entry.id?{...x,...patch,needsReview:false}:x));
   }
+  // Jumps straight to a project's Time Log, pre-expanding one employee's
+  // group when called with an entry (e.g. from Needs Review's "View in
+  // Project") - lands directly on that employee's full punch history for
+  // the project instead of making the office hunt for it.
+  function openTimeLog(projId, empId=null) {
+    setFocusEmpId(empId);
+    setExpandId(projId);
+    setQuickSheet({projId,section:"timelog"});
+  }
 
   // Quick-access thumbnails only ever checked f.url, so a legacy
   // base64-embedded file (f.data, no f.url) silently did nothing when
@@ -2611,12 +2626,18 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
             const marginPct = sale>0 ? profit/sale*100 : null;
             const files = (projDetails[String(proj.id)]||{}).files||[];
             const crew = emps.filter(e=>(proj.assignedTo||[]).includes(e.id));
+            const flaggedCount = entries.filter(e=>e.projId===proj.id&&e.needsReview).length;
 
             return [
               // Main row
               h("tr",{key:proj.id,style:{cursor:"pointer"},onClick:()=>setExpandId(isExp?null:proj.id)},
                 h("td",null,
-                  h("div",{style:{fontWeight:500,fontSize:12,color:NAVY}},proj.name),
+                  h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                    h("div",{style:{fontWeight:500,fontSize:12,color:NAVY}},proj.name),
+                    flaggedCount>0&&h("span",{onClick:e=>{e.stopPropagation();openTimeLog(proj.id);},
+                      title:"Has punches that need review",
+                      style:{fontSize:10,fontWeight:700,color:"#FFF",background:"#DC2626",borderRadius:10,padding:"1px 6px",cursor:"pointer",whiteSpace:"nowrap"}},"⚠ "+flaggedCount)
+                  ),
                   proj.client&&h("div",{style:{fontSize:10,color:SUB,marginTop:1}},proj.client)
                 ),
                 h("td",{style:{fontSize:11,color:SUB}},proj.jobName||"—"),
@@ -2878,7 +2899,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
                   )
                 : h("button",{onClick:()=>setAddTimeForm({empId:"",date:new Date().toISOString().slice(0,10),hours:""}),
                     style:{width:"100%",marginBottom:10,background:GOLD+"12",border:"1.5px dashed "+GOLD+"44",borderRadius:8,padding:"8px",fontSize:12,fontWeight:600,color:"#92600a",cursor:"pointer"}},"+ Add Time"),
-              h(ProjEmpLog,{entries:done,emps,onDelete:deleteTimeEntry,onEdit:editTimeEntry})
+              h(ProjEmpLog,{entries:done,emps,onDelete:deleteTimeEntry,onEdit:editTimeEntry,initialOpenEmpId:focusEmpId})
             );
             if(quickSheet.section==="payments") return h(PaymentsPanel,{projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T:{text:NAVY,sub:SUB,dim:DIM,green:"#2d7a4f",amber:GOLD,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2"},line:LINE,faint:"#f8f6f2"});
             return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,
@@ -2907,7 +2928,8 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
 
     // ── Recovery panel ──
     showRecovery&&h(RecoveryPanel,{projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose:()=>setShowRecovery(false)}),
-    showReview&&h(NeedsReviewPanel,{entries,setEntries,emps,projs,onClose:()=>setShowReview(false)})
+    showReview&&h(NeedsReviewPanel,{entries,setEntries,emps,projs,onClose:()=>setShowReview(false),
+      onViewInProject:e=>{setShowReview(false);openTimeLog(e.projId,e.empId);}})
   );
 }
 

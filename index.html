@@ -3882,13 +3882,13 @@ function App() {
                     const isActive=a&&a.projId===proj.id;
                     const elapsed=isActive?now2-a.start:0;
                     const hh=Math.floor(elapsed/3600000),mm=Math.floor((elapsed%3600000)/60000),ss=Math.floor((elapsed%60000)/1000);
-                    const images=((projDetails[String(proj.id)]||{}).files||[]).filter(f=>(f.type||"").startsWith("image"));
-                    return h("div",{key:proj.id,onClick:()=>{if(images.length>0){setPhotoProj(proj.id);setPhotoIndex(null);}},
-                      style:{display:"flex",alignItems:"center",gap:12,marginBottom:8,cursor:images.length>0?"pointer":"default"}},
+                    const files=(projDetails[String(proj.id)]||{}).files||[];
+                    return h("div",{key:proj.id,onClick:()=>{if(files.length>0){setPhotoProj(proj.id);setPhotoIndex(null);}},
+                      style:{display:"flex",alignItems:"center",gap:12,marginBottom:8,cursor:files.length>0?"pointer":"default"}},
                       h("div",{style:{flex:1}},
                         h("div",{style:{display:"flex",alignItems:"center",gap:6}},
                           h("div",{style:{fontSize:13,fontWeight:500,color:NAVY}},proj.name),
-                          images.length>0&&h("span",{style:{fontSize:11,color:DIM}},"📷 "+images.length)
+                          files.length>0&&h("span",{style:{fontSize:11,color:DIM}},"📎 "+files.length)
                         ),
                         isActive&&h("div",{style:{fontSize:11,fontWeight:600,color:GOLD,fontVariantNumeric:"tabular-nums"}},String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0")+":"+String(ss).padStart(2,"0"))
                       ),
@@ -3903,16 +3903,20 @@ function App() {
         })
       );})()
     ),
-    // ── Photo gallery (tap a project row with photos to open) ──
+    // ── Project files (tap a project row with files to open) - images get
+    // the in-page lightbox below; PDFs (most of what's actually uploaded
+    // here - plans/layouts) open in a new tab for the browser's own viewer,
+    // same as the admin side's openFile does for any f.url. ──
     photoProj&&(()=>{
       const proj=projs.find(p=>p.id===photoProj);
-      const images=((projDetails[String(photoProj)]||{}).files||[]).filter(f=>(f.type||"").startsWith("image"));
+      const files=(projDetails[String(photoProj)]||{}).files||[];
+      const images=files.filter(f=>(f.type||"").startsWith("image"));
       const closeAll=()=>{setPhotoProj(null);setPhotoIndex(null);};
       const viewing = photoIndex!=null ? images[photoIndex] : null;
       return h("div",{onClick:closeAll,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:300,display:"flex",flexDirection:"column"}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"max(14px,env(safe-area-inset-top)) 16px 14px"}},
           h("div",{style:{color:"#fff",fontSize:14,fontWeight:600}},
-            viewing ? h("span",{onClick:e=>{e.stopPropagation();setPhotoIndex(null);},style:{cursor:"pointer"}},"‹ "+(proj?proj.name:"Photos")) : (proj?proj.name:"Photos")
+            viewing ? h("span",{onClick:e=>{e.stopPropagation();setPhotoIndex(null);},style:{cursor:"pointer"}},"‹ "+(proj?proj.name:"Files")) : (proj?proj.name:"Files")
           ),
           h("button",{onClick:closeAll,style:{background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:20,cursor:"pointer",padding:4}},"×")
         ),
@@ -3925,10 +3929,21 @@ function App() {
               images.length>1&&h("button",{onClick:()=>setPhotoIndex(i=>(i+1)%images.length),
                 style:{position:"absolute",right:8,background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",width:40,height:40,borderRadius:"50%",fontSize:20,cursor:"pointer"}},"›")
             )
-          // ── Grid ──
+          // ── Grid: images as thumbnails, everything else (mostly PDF
+          // plans) as a labeled file tile that opens in a new tab ──
           : h("div",{onClick:e=>e.stopPropagation(),style:{overflowY:"auto",padding:"0 16px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}},
-              images.map((f,i)=>h("img",{key:f.id,src:f.url||f.data,onClick:()=>setPhotoIndex(i),
-                style:{width:"100%",aspectRatio:"4/3",borderRadius:8,objectFit:"cover",cursor:"pointer"}}))
+              files.map(f=>{
+                const isImg=(f.type||"").startsWith("image");
+                return isImg
+                  ? h("img",{key:f.id,src:f.url||f.data,onClick:()=>setPhotoIndex(images.indexOf(f)),
+                      style:{width:"100%",aspectRatio:"4/3",borderRadius:8,objectFit:"cover",cursor:"pointer"}})
+                  : h("div",{key:f.id,onClick:()=>{const src=f.url||f.data;if(src)window.open(src,"_blank");},
+                      style:{width:"100%",aspectRatio:"4/3",borderRadius:8,background:"rgba(255,255,255,0.08)",cursor:"pointer",
+                        display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:6,boxSizing:"border-box"}},
+                      h("i",{className:"ti "+((f.type||"").includes("pdf")?"ti-file-type-pdf":"ti-file"),style:{fontSize:26,color:"#fff"}}),
+                      h("div",{style:{fontSize:9,color:"rgba(255,255,255,0.65)",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",width:"100%"}},f.name||"File")
+                    );
+              })
             )
       );
     })(),

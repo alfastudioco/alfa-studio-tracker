@@ -26,6 +26,7 @@ button{cursor:pointer}
 /* Pills */
 .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:500;white-space:nowrap}
 .pill-nq{background:#dbeafe;color:#1e40af}
+.pill-qt{background:#cffafe;color:#155e75}
 .pill-ns{background:#f1f5f9;color:#475569}
 .pill-ip{background:#fef3cd;color:#92600a}
 .pill-oh{background:#f3e8ff;color:#6b21a8}
@@ -330,8 +331,8 @@ const ROLE_TABS = {
 };
 const COLORS = ["#D97706","#2563EB","#16A34A","#9333EA","#DC2626","#0891B2","#EA580C","#4F46E5"];
 const ROLES = ["Master Carpenter","Finisher","Assembler","CNC Operator","Apprentice","Project Manager","Installer","Shop Hand"];
-const STATUSES = ["Needs Quote","Not Started","In Progress","On Hold","Completed"];
-const SC = {"Needs Quote":"#2563EB","Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
+const STATUSES = ["Needs Quote","Quoted","Not Started","In Progress","On Hold","Completed"];
+const SC = {"Needs Quote":"#2563EB","Quoted":"#0891B2","Not Started":"#94A3B8","In Progress":"#D97706","On Hold":"#9333EA","Completed":"#16A34A"};
 const MATERIAL_STATUSES = ["Needed","Ordered","Received"];
 const MATERIAL_STATUS_STYLE = {Needed:{bg:"#FEF3C7",fg:"#92400E"},Ordered:{bg:"#DBEAFE",fg:"#1E40AF"},Received:{bg:"#DCFCE7",fg:"#166534"}};
 
@@ -2135,6 +2136,7 @@ const DIM  = "#b0a899";
 function StatusPill({status}) {
   const map = {
     "Needs Quote": "pill-nq",
+    "Quoted":      "pill-qt",
     "Not Started": "pill-ns",
     "In Progress": "pill-ip",
     "On Hold":     "pill-oh",

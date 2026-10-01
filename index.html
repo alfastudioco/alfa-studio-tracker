@@ -2264,6 +2264,7 @@ function NeedsReviewPanel({entries, setEntries, emps, projs, onClose, onViewInPr
   const [editId,setEditId] = React.useState(null);
   const [editForm,setEditForm] = React.useState(null); // {date,start,end} while editing one flagged entry
   const [addForm,setAddForm] = React.useState(null); // {empId,projId,date,hours} while the add-time form is open
+  const [confirmEntry,setConfirmEntry] = React.useState(null); // entry pending delete confirmation
 
   const inp = {background:"#F5F3F0",border:"1px solid #E5E2DC",borderRadius:6,color:"#1C1917",padding:"6px 8px",fontSize:12,outline:"none",boxSizing:"border-box"};
 
@@ -2332,7 +2333,7 @@ function NeedsReviewPanel({entries, setEntries, emps, projs, onClose, onViewInPr
           onViewInProject&&h("button",{onClick:()=>onViewInProject(e),title:"View this employee's punches on this project",
             style:{fontSize:11,fontWeight:600,color:"#2563EB",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px",whiteSpace:"nowrap"}},"View in Project →"),
           h("button",{onClick:()=>startEdit(e),title:"Edit the correct time",style:{fontSize:13,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"✏"),
-          h("button",{onClick:()=>del(e.id),title:"Delete",style:{fontSize:20,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
+          h("button",{onClick:()=>setConfirmEntry(e),title:"Delete",style:{fontSize:20,lineHeight:1,color:"#A8A29E",background:"none",border:"none",cursor:"pointer",flexShrink:0,padding:"0 4px"}},"×")
         );
       }),
 
@@ -2363,7 +2364,11 @@ function NeedsReviewPanel({entries, setEntries, emps, projs, onClose, onViewInPr
 
       h("div",{style:{marginTop:16,textAlign:"right"}},
         h("button",{onClick:onClose,style:{borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,background:"#1C1917",color:"#FFF",border:"none",cursor:"pointer"}},"Done")
-      )
+      ),
+
+      confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,
+        onConfirm:()=>{del(confirmEntry.id);setConfirmEntry(null);},
+        onCancel:()=>setConfirmEntry(null)})
     )
   );
 }
@@ -2394,6 +2399,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
   const [materialsSheet,setMaterialsSheet] = useState(null);
   const [showMaterials,setShowMaterials]   = useState(false);
   const [confirmDel,setConfirmDel] = useState(null);
+  const [confirmEntry,setConfirmEntry] = useState(null); // time entry pending delete confirmation
   const [uploading,setUploading]   = useState(false);
   const [showRecovery,setShowRecovery] = useState(false);
   const [showReview,setShowReview] = useState(false);
@@ -2901,7 +2907,7 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
                   )
                 : h("button",{onClick:()=>setAddTimeForm({empId:"",date:new Date().toISOString().slice(0,10),hours:""}),
                     style:{width:"100%",marginBottom:10,background:GOLD+"12",border:"1.5px dashed "+GOLD+"44",borderRadius:8,padding:"8px",fontSize:12,fontWeight:600,color:"#92600a",cursor:"pointer"}},"+ Add Time"),
-              h(ProjEmpLog,{entries:done,emps,onDelete:deleteTimeEntry,onEdit:editTimeEntry,initialOpenEmpId:focusEmpId})
+              h(ProjEmpLog,{entries:done,emps,onDelete:setConfirmEntry,onEdit:editTimeEntry,initialOpenEmpId:focusEmpId})
             );
             if(quickSheet.section==="payments") return h(PaymentsPanel,{projId:proj.id,projPayments,setProjPayments,salePrice:+proj.salePrice||0,fmtCost,T:{text:NAVY,sub:SUB,dim:DIM,green:"#2d7a4f",amber:GOLD,blue:"#2563EB",border:LINE,line:LINE,surf:SURF,faint:"#f8f6f2"},line:LINE,faint:"#f8f6f2"});
             return h(ProjectDetails,{projId:quickSheet.projId,projDetails,setProjDetails,
@@ -2927,6 +2933,11 @@ function ProjectsTab({projs,setProjs,emps,entries,setEntries,cogs,setCogs,materi
 
     // ── Confirm delete ──
     confirmDel&&h(ConfirmDialog,{msg:"Delete "+confirmDel.name+"?",onConfirm:()=>delProj(confirmDel.id),onCancel:()=>setConfirmDel(null)}),
+
+    // ── Confirm time entry delete ──
+    confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,
+      onConfirm:()=>{deleteTimeEntry(confirmEntry);setConfirmEntry(null);},
+      onCancel:()=>setConfirmEntry(null)}),
 
     // ── Recovery panel ──
     showRecovery&&h(RecoveryPanel,{projPayments,setProjPayments,projNotes,setProjNotes,projs,fmtCost,onClose:()=>setShowRecovery(false)}),
@@ -3470,6 +3481,7 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
   const [showImport,setShowImport] = useState(false);
   const [viewLogEmp,setViewLogEmp] = useState(null);
   const [showReview,setShowReview] = useState(false);
+  const [confirmEntry,setConfirmEntry] = useState(null); // time entry pending delete confirmation
 
   function deleteEntry(entry) {
     setEntries(p=>p.filter(x=>x.id!==entry.id));
@@ -3557,8 +3569,12 @@ function PayrollTab({emps,entries,setEntries,projs,fmtHrs,fmtCost,T}) {
     }}),
 
     viewLogEmp&&h(Sheet,{title:viewLogEmp.name+" — Time Log",onClose:()=>setViewLogEmp(null)},
-      h(WorkerLogCard,{emp:viewLogEmp,entries:entries.filter(e=>e.empId===viewLogEmp.id),projs,onDelete:deleteEntry})
+      h(WorkerLogCard,{emp:viewLogEmp,entries:entries.filter(e=>e.empId===viewLogEmp.id),projs,onDelete:setConfirmEntry})
     ),
+
+    confirmEntry&&h(Confirm,{entry:confirmEntry,emps,projs,
+      onConfirm:()=>{deleteEntry(confirmEntry);setConfirmEntry(null);},
+      onCancel:()=>setConfirmEntry(null)}),
 
     showReview&&h(NeedsReviewPanel,{entries,setEntries,emps,projs,onClose:()=>setShowReview(false)})
   );
